@@ -1,0 +1,1861 @@
+package com.openclaw.xlx
+
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.os.Build
+import android.system.Os
+import io.flutter.FlutterInjector
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.FileNotFoundException
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.zip.GZIPInputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
+import org.json.JSONArray
+import org.json.JSONObject
+import org.apache.commons.compress.archivers.ar.ArArchiveInputStream
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
+import org.apache.commons.compress.compressors.zstandard.ZstdCompressorInputStream
+
+class BootstrapManager(
+    private val context: Context,
+    private val filesDir: String,
+    private val nativeLibDir: String
+) {
+    private val rootfsDir get() = "$filesDir/rootfs/ubuntu"
+    private val tmpDir get() = "$filesDir/tmp"
+    private val homeDir get() = "$filesDir/home"
+    private val configDir get() = "$filesDir/config"
+    private val libDir get() = "$filesDir/lib"
+    private val nativeRuntimeDir get() = "$filesDir/native"
+    private val workspaceRootDir get() = File("$rootfsDir/root/.openclaw")
+    private val workspaceBackupManifestName = "openclaw-workspace-backup.json"
+    private val workspaceBackupFormat = "openclaw-workspace-backup"
+    private val workspaceBackupRelativePaths = listOf(
+        ".env",
+        "openclaw.json",
+        "data",
+        "memory",
+        "skills",
+        "config",
+        "extensions",
+        "agents",
+    )
+
+    fun setupDirectories() {
+        listOf(
+            rootfsDir to "Ubuntu rootfs directory",
+            tmpDir to "temporary directory",
+            homeDir to "home directory",
+            configDir to "config directory",
+            "$homeDir/.openclaw" to "OpenClaw home directory",
+            libDir to "library directory",
+            nativeRuntimeDir to "native runtime directory",
+        ).forEach { (path, label) ->
+            HostFilesystem.ensureDirectoryReady(path, label)
+        }
+        setupNativeRuntimeBinaries()
+        // Termux's proot links against libtalloc.so.2 but Android extracts it
+        // as libtalloc.so (jniLibs naming convention). Create a copy with the
+        // correct SONAME so the dynamic linker finds it.
+        setupLibtalloc()
+        ensureRootfsRuntimeDirectories()
+        // Create fake /proc and /sys files for proot bind mounts
+        setupFakeSysdata()
+        ensureDefaultTimezone()
+    }
+
+    private fun ensureRootfsRuntimeDirectories() {
+        listOf(
+            "$rootfsDir/var/cache/apt",
+            "$rootfsDir/var/cache/apt/archives",
+            "$rootfsDir/var/cache/apt/archives/partial",
+            "$rootfsDir/var/lib/apt",
+            "$rootfsDir/var/lib/apt/lists",
+            "$rootfsDir/var/lib/apt/lists/partial",
+            "$rootfsDir/var/log/apt",
+            "$rootfsDir/var/lib/dpkg/updates",
+            "$rootfsDir/var/lib/dpkg/triggers",
+            "$rootfsDir/tmp",
+            "$rootfsDir/var/tmp",
+            "$rootfsDir/run",
+            "$rootfsDir/run/lock",
+            "$rootfsDir/dev/shm",
+        ).forEach { path ->
+            HostFilesystem.ensureDirectoryReady(path, "rootfs runtime directory")
+        }
+    }
+
+    private fun setupNativeRuntimeBinaries() {
+        listOf(
+            "libproot.so",
+            "libprootloader.so",
+            "libprootloader32.so",
+            "libtalloc.so",
+        ).forEach { libName ->
+            ensureNativeRuntimeBinary(libName)
+        }
+    }
+
+    private fun ensureNativeRuntimeBinary(libName: String) {
+        val target = File("$nativeRuntimeDir/$libName")
+        if (target.exists() && target.length() > 0L) {
+            target.setReadable(true, false)
+            target.setExecutable(true, false)
+            return
+        }
+
+        val directSource = File("$nativeLibDir/$libName")
+        if (directSource.exists() && directSource.length() > 0L) {
+            directSource.copyTo(target, overwrite = true)
+            target.setReadable(true, false)
+            target.setExecutable(true, false)
+            return
+        }
+
+        extractNativeLibraryFromApk(libName, target)
+    }
+
+    private fun extractNativeLibraryFromApk(libName: String, target: File) {
+        val apkPath = context.applicationInfo.sourceDir ?: return
+        val abiDirs = resolveApkAbiDirs()
+
+        ZipFile(apkPath).use { zip ->
+            for (abiDir in abiDirs) {
+                val entry = zip.getEntry("lib/$abiDir/$libName") ?: continue
+                target.parentFile?.mkdirs()
+                zip.getInputStream(entry).use { input ->
+                    FileOutputStream(target).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                target.setReadable(true, false)
+                target.setExecutable(true, false)
+                return
+            }
+        }
+    }
+
+    private fun resolveApkAbiDirs(): List<String> {
+        val supported = Build.SUPPORTED_ABIS?.mapNotNull { abi ->
+            when (abi.lowercase()) {
+                "arm64-v8a" -> "arm64-v8a"
+                "armeabi-v7a", "armeabi" -> "armeabi-v7a"
+                "x86_64" -> "x86_64"
+                "x86" -> "x86"
+                else -> null
+            }
+        } ?: emptyList()
+
+        return (supported + listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86"))
+            .distinct()
+    }
+
+    private fun setupLibtalloc() {
+        val runtimeSource = File("$nativeRuntimeDir/libtalloc.so")
+        val source = if (runtimeSource.exists() && runtimeSource.length() > 0L) {
+            runtimeSource
+        } else {
+            File("$nativeLibDir/libtalloc.so")
+        }
+        val target = File("$libDir/libtalloc.so.2")
+        if (source.exists() && (!target.exists() || target.length() != source.length())) {
+            source.copyTo(target, overwrite = true)
+            target.setExecutable(true)
+            target.setReadable(true, false)
+        }
+    }
+
+    fun isBootstrapComplete(): Boolean {
+        val rootfs = File(rootfsDir)
+        val binBash = File("$rootfsDir/bin/bash")
+        val bypass = File("$rootfsDir/root/.openclaw/bionic-bypass.js")
+        val node = File("$rootfsDir/usr/local/bin/node")
+        val openclaw = File("$rootfsDir/usr/local/lib/node_modules/openclaw/package.json")
+        return rootfs.exists() && binBash.exists() && bypass.exists()
+            && node.exists() && openclaw.exists()
+    }
+
+    fun getBootstrapStatus(): Map<String, Any> {
+        val rootfsExists = File(rootfsDir).exists()
+        val binBashExists = File("$rootfsDir/bin/bash").exists()
+        val nodeExists = File("$rootfsDir/usr/local/bin/node").exists()
+        val openclawExists = File("$rootfsDir/usr/local/lib/node_modules/openclaw/package.json").exists()
+        val bypassExists = File("$rootfsDir/root/.openclaw/bionic-bypass.js").exists()
+        val basePackageBinaries = listOf(
+            "$rootfsDir/usr/bin/git",
+            "$rootfsDir/usr/bin/python3",
+            "$rootfsDir/usr/bin/make",
+            "$rootfsDir/usr/bin/g++",
+            "$rootfsDir/usr/bin/curl",
+            "$rootfsDir/usr/bin/wget",
+        )
+        val caCertificatesReady =
+            File("$rootfsDir/etc/ssl/certs/ca-certificates.crt").exists() ||
+            File("$rootfsDir/usr/sbin/update-ca-certificates").exists()
+        val basePackagesInstalled = binBashExists &&
+            basePackageBinaries.all { File(it).exists() } &&
+            caCertificatesReady
+
+        return mapOf(
+            "rootfsExists" to rootfsExists,
+            "binBashExists" to binBashExists,
+            "nodeInstalled" to nodeExists,
+            "openclawInstalled" to openclawExists,
+            "bypassInstalled" to bypassExists,
+            "basePackagesInstalled" to basePackagesInstalled,
+            "rootfsPath" to rootfsDir,
+            "complete" to (rootfsExists && binBashExists && bypassExists
+                && nodeExists && openclawExists)
+        )
+    }
+
+    fun extractRootfs(tarPath: String) {
+        val rootfs = File(rootfsDir)
+        // Clean up any previous failed extraction
+        if (rootfs.exists()) {
+            deleteRecursively(rootfs)
+        }
+        rootfs.mkdirs()
+
+        // Pure Java extraction using Apache Commons Compress.
+        // Two-phase approach:
+        //   Phase 1: Extract directories, regular files, and hard links (as copies).
+        //   Phase 2: Create all symlinks (deferred so directory structure exists first).
+        // This handles tarball entry ordering issues (e.g., bin/bash before bin -> usr/bin).
+        val deferredSymlinks = mutableListOf<Pair<String, String>>() // target, path
+        var entryCount = 0
+        var fileCount = 0
+        var symlinkCount = 0
+        var extractionError: Exception? = null
+
+        try {
+            FileInputStream(tarPath).use { fis ->
+                BufferedInputStream(fis, 256 * 1024).use { bis ->
+                    GZIPInputStream(bis).use { gis ->
+                        TarArchiveInputStream(gis).use { tis ->
+                            var entry: TarArchiveEntry? = tis.nextEntry
+                            while (entry != null) {
+                                entryCount++
+                                val name = entry.name
+                                    .removePrefix("./")
+                                    .removePrefix("/")
+
+                                if (name.isEmpty() || name.startsWith("dev/") || name == "dev") {
+                                    entry = tis.nextEntry
+                                    continue
+                                }
+
+                                val outFile = File(rootfsDir, name)
+
+                                when {
+                                    entry.isDirectory -> {
+                                        outFile.mkdirs()
+                                    }
+                                    entry.isSymbolicLink -> {
+                                        // Defer symlinks to phase 2
+                                        deferredSymlinks.add(
+                                            Pair(entry.linkName, outFile.absolutePath)
+                                        )
+                                        symlinkCount++
+                                    }
+                                    entry.isLink -> {
+                                        // Hard link: copy the target file.
+                                        val target = entry.linkName
+                                            .removePrefix("./")
+                                            .removePrefix("/")
+                                        val targetFile = File(rootfsDir, target)
+                                        outFile.parentFile?.mkdirs()
+                                        try {
+                                            if (targetFile.exists()) {
+                                                targetFile.copyTo(outFile, overwrite = true)
+                                                if (targetFile.canExecute()) {
+                                                    outFile.setExecutable(true, false)
+                                                }
+                                                fileCount++
+                                            }
+                                        } catch (_: Exception) {}
+                                    }
+                                    else -> {
+                                        // Regular file
+                                        outFile.parentFile?.mkdirs()
+                                        FileOutputStream(outFile).use { fos ->
+                                            val buf = ByteArray(65536)
+                                            var len: Int
+                                            while (tis.read(buf).also { len = it } != -1) {
+                                                fos.write(buf, 0, len)
+                                            }
+                                        }
+                                        outFile.setReadable(true, false)
+                                        outFile.setWritable(true, false)
+                                        val mode = entry.mode
+                                        if (mode == 0 || mode and 0b001_001_001 != 0) {
+                                            val path = name.lowercase()
+                                            if (mode and 0b001_001_001 != 0 ||
+                                                path.contains("/bin/") ||
+                                                path.contains("/sbin/") ||
+                                                path.endsWith(".sh") ||
+                                                path.contains("/lib/apt/methods/")) {
+                                                outFile.setExecutable(true, false)
+                                            }
+                                        }
+                                        fileCount++
+                                    }
+                                }
+
+                                entry = tis.nextEntry
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            extractionError = e
+        }
+
+        if (entryCount == 0) {
+            throw RuntimeException(
+                "Extraction failed: tarball appears empty or corrupt. " +
+                "Error: ${extractionError?.message ?: "none"}"
+            )
+        }
+
+        if (extractionError != null && fileCount < 100) {
+            throw RuntimeException(
+                "Extraction failed after $entryCount entries ($fileCount files): " +
+                "${extractionError!!.message}"
+            )
+        }
+
+        // Phase 2: Create all symlinks now that the directory structure exists.
+        var symlinkErrors = 0
+        var lastSymlinkError = ""
+        for ((target, path) in deferredSymlinks) {
+            try {
+                val file = File(path)
+                if (file.exists()) {
+                    if (file.isDirectory) {
+                        val linkTarget = if (target.startsWith("/")) {
+                            target.removePrefix("/")
+                        } else {
+                            val parent = file.parentFile?.absolutePath ?: rootfsDir
+                            File(parent, target).relativeTo(File(rootfsDir)).path
+                        }
+                        val realTargetDir = File(rootfsDir, linkTarget)
+                        if (realTargetDir.exists() && realTargetDir.isDirectory) {
+                            file.listFiles()?.forEach { child ->
+                                val dest = File(realTargetDir, child.name)
+                                if (!dest.exists()) {
+                                    child.renameTo(dest)
+                                }
+                            }
+                        }
+                        deleteRecursively(file)
+                    } else {
+                        file.delete()
+                    }
+                }
+                file.parentFile?.mkdirs()
+                Os.symlink(target, path)
+            } catch (e: Exception) {
+                symlinkErrors++
+                lastSymlinkError = "$path -> $target: ${e.message}"
+            }
+        }
+
+        // Verify extraction
+        if (!File("$rootfsDir/bin/bash").exists() &&
+            !File("$rootfsDir/usr/bin/bash").exists()) {
+            throw RuntimeException(
+                "Extraction failed: bash not found in rootfs. " +
+                "Processed $entryCount entries, $fileCount files, " +
+                "$symlinkCount symlinks (${symlinkErrors} symlink errors). " +
+                "Last symlink error: $lastSymlinkError. " +
+                "usr/bin exists: ${File("$rootfsDir/usr/bin").exists()}. " +
+                "Extraction error: ${extractionError?.message ?: "none"}"
+            )
+        }
+
+        // Post-extraction: configure rootfs for proot compatibility
+        configureRootfs()
+
+        // Clean up tarball
+        File(tarPath).delete()
+    }
+
+    /**
+     * Extract all .deb packages from the apt cache into the rootfs.
+     * Uses Java (Apache Commons Compress) to avoid fork+exec issues in proot.
+     * A .deb is an ar archive containing data.tar.{xz,gz,zst}.
+     * Returns the number of packages extracted.
+     */
+    fun extractDebPackages(): Int {
+        val archivesDir = File("$rootfsDir/var/cache/apt/archives")
+        if (!archivesDir.exists()) {
+            throw RuntimeException("No apt archives directory found")
+        }
+
+        val debFiles = archivesDir.listFiles { f -> f.name.endsWith(".deb") }
+            ?: throw RuntimeException("No .deb files found in apt cache")
+
+        if (debFiles.isEmpty()) {
+            throw RuntimeException("No .deb files found in apt cache")
+        }
+
+        var extracted = 0
+        val errors = mutableListOf<String>()
+
+        for (debFile in debFiles) {
+            try {
+                extractSingleDeb(debFile)
+                extracted++
+            } catch (e: Exception) {
+                errors.add("${debFile.name}: ${e.message}")
+            }
+        }
+
+        if (extracted == 0) {
+            throw RuntimeException(
+                "Failed to extract any .deb packages. Errors: ${errors.joinToString("; ")}"
+            )
+        }
+
+        // Fix permissions on newly extracted binaries
+        fixBinPermissions()
+
+        return extracted
+    }
+
+    /**
+     * Extract a single .deb file into the rootfs.
+     * Reads the ar archive, finds data.tar.*, decompresses, and extracts.
+     */
+    private fun extractSingleDeb(debFile: File) {
+        FileInputStream(debFile).use { fis ->
+            BufferedInputStream(fis).use { bis ->
+                ArArchiveInputStream(bis).use { arIn ->
+                    var arEntry = arIn.nextEntry
+                    while (arEntry != null) {
+                        val name = arEntry.name
+                        if (name.startsWith("data.tar")) {
+                            // Wrap in appropriate decompressor
+                            val dataStream: InputStream = when {
+                                name.endsWith(".xz") -> XZCompressorInputStream(arIn)
+                                name.endsWith(".gz") -> GZIPInputStream(arIn)
+                                name.endsWith(".zst") -> ZstdCompressorInputStream(arIn)
+                                else -> arIn // plain .tar or unknown
+                            }
+
+                            // Extract data.tar contents into rootfs
+                            TarArchiveInputStream(dataStream).use { tarIn ->
+                                var tarEntry = tarIn.nextEntry
+                                while (tarEntry != null) {
+                                    val entryName = tarEntry.name
+                                        .removePrefix("./")
+                                        .removePrefix("/")
+
+                                    if (entryName.isEmpty()) {
+                                        tarEntry = tarIn.nextEntry
+                                        continue
+                                    }
+
+                                    val outFile = File(rootfsDir, entryName)
+
+                                    when {
+                                        tarEntry.isDirectory -> {
+                                            outFile.mkdirs()
+                                        }
+                                        tarEntry.isSymbolicLink -> {
+                                            try {
+                                                if (outFile.exists()) outFile.delete()
+                                                outFile.parentFile?.mkdirs()
+                                                Os.symlink(tarEntry.linkName, outFile.absolutePath)
+                                            } catch (_: Exception) {}
+                                        }
+                                        tarEntry.isLink -> {
+                                            val target = tarEntry.linkName
+                                                .removePrefix("./")
+                                                .removePrefix("/")
+                                            val targetFile = File(rootfsDir, target)
+                                            outFile.parentFile?.mkdirs()
+                                            try {
+                                                if (targetFile.exists()) {
+                                                    targetFile.copyTo(outFile, overwrite = true)
+                                                    if (targetFile.canExecute()) {
+                                                        outFile.setExecutable(true, false)
+                                                    }
+                                                }
+                                            } catch (_: Exception) {}
+                                        }
+                                        else -> {
+                                            outFile.parentFile?.mkdirs()
+                                            FileOutputStream(outFile).use { fos ->
+                                                val buf = ByteArray(65536)
+                                                var len: Int
+                                                while (tarIn.read(buf).also { len = it } != -1) {
+                                                    fos.write(buf, 0, len)
+                                                }
+                                            }
+                                            outFile.setReadable(true, false)
+                                            outFile.setWritable(true, false)
+                                            val mode = tarEntry.mode
+                                            if (mode and 0b001_001_001 != 0) {
+                                                outFile.setExecutable(true, false)
+                                            }
+                                            // Ensure bin/sbin files are executable
+                                            val path = entryName.lowercase()
+                                            if (path.contains("/bin/") ||
+                                                path.contains("/sbin/")) {
+                                                outFile.setExecutable(true, false)
+                                            }
+                                        }
+                                    }
+
+                                    tarEntry = tarIn.nextEntry
+                                }
+                            }
+                            return // Found and processed data.tar, done
+                        }
+                        arEntry = arIn.nextEntry
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Write configuration files that make the rootfs work correctly under proot.
+     * Called automatically after extraction.
+     */
+    private fun configureRootfs() {
+        // 1. Disable apt sandboxing 鈥?proot fakes UID 0 via ptrace but cannot
+        //    intercept setresuid/setresgid, so apt's _apt user privilege drop
+        //    fails with "Operation not permitted". Tell apt to stay as root.
+        val aptConfDir = File("$rootfsDir/etc/apt/apt.conf.d")
+        aptConfDir.mkdirs()
+        File(aptConfDir, "01-openclaw-proot").writeText(
+            "APT::Sandbox::User \"root\";\n" +
+            "Acquire::Languages \"none\";\n" +
+            "Acquire::Retries \"3\";\n" +
+            "Acquire::http::Timeout \"20\";\n" +
+            "Acquire::https::Timeout \"20\";\n" +
+            // Disable PTY allocation when APT forks dpkg. APT's child process
+            // calls SetupSlavePtyMagic() before execvp(dpkg); in proot on
+            // Android 10+ (W^X policy), the PTY/chdir setup in the child can
+            // fail causing _exit(100). Disabling this simplifies the fork path.
+            "Dpkg::Use-Pty \"0\";\n" +
+            // Pass dpkg options through apt to tolerate proot failures
+            "Dpkg::Options { \"--force-confnew\"; \"--force-overwrite\"; };\n"
+        )
+
+        // 2. Configure dpkg for proot compatibility
+        //    - force-unsafe-io: skip fsync/sync_file_range (may ENOSYS in proot)
+        //    - no-debsig: skip signature verification
+        val dpkgConfDir = File("$rootfsDir/etc/dpkg/dpkg.cfg.d")
+        dpkgConfDir.mkdirs()
+        File(dpkgConfDir, "01-openclaw-proot").writeText(
+            "force-unsafe-io\n" +
+            "no-debsig\n" +
+            "force-overwrite\n" +
+            "force-depends\n"
+        )
+
+        // 3. Ensure essential directories exist
+        // mkdir syscall is broken inside proot on Android 10+.
+        // Pre-create ALL directories that tools need at runtime.
+        listOf(
+            "$rootfsDir/etc/ssl/certs",
+            "$rootfsDir/usr/share/keyrings",
+            "$rootfsDir/etc/apt/sources.list.d",
+            "$rootfsDir/var/cache/apt",
+            "$rootfsDir/var/cache/apt/archives",
+            "$rootfsDir/var/cache/apt/archives/partial",
+            "$rootfsDir/var/lib/apt",
+            "$rootfsDir/var/lib/apt/lists",
+            "$rootfsDir/var/lib/apt/lists/partial",
+            "$rootfsDir/var/log/apt",
+            "$rootfsDir/var/lib/dpkg/updates",
+            "$rootfsDir/var/lib/dpkg/triggers",
+            // npm cache directories (npm can't mkdir inside proot)
+            "$rootfsDir/tmp/npm-cache/_cacache/tmp",
+            "$rootfsDir/tmp/npm-cache/_cacache/content-v2",
+            "$rootfsDir/tmp/npm-cache/_cacache/index-v5",
+            "$rootfsDir/tmp/npm-cache/_logs",
+            // Node.js / npm working directories
+            "$rootfsDir/root/.npm",
+            "$rootfsDir/root/.config",
+            "$rootfsDir/usr/local/lib/node_modules",
+            "$rootfsDir/usr/local/bin",
+            // OpenClaw runtime directories (can't mkdir at runtime)
+            "$rootfsDir/root/.openclaw",
+            "$rootfsDir/root/.openclaw/data",
+            "$rootfsDir/root/.openclaw/memory",
+            "$rootfsDir/root/.openclaw/skills",
+            "$rootfsDir/root/.openclaw/config",
+            "$rootfsDir/root/.openclaw/extensions",
+            "$rootfsDir/root/.openclaw/logs",
+            "$rootfsDir/root/.config/openclaw",
+            "$rootfsDir/root/.local/share",
+            "$rootfsDir/root/.cache",
+            "$rootfsDir/root/.cache/openclaw",
+            "$rootfsDir/root/.cache/node",
+            // General runtime directories
+            "$rootfsDir/var/tmp",
+            "$rootfsDir/run",
+            "$rootfsDir/run/lock",
+            "$rootfsDir/dev/shm",
+        ).forEach { File(it).mkdirs() }
+
+        // 4. Ensure /etc/machine-id exists (dpkg triggers and systemd utils need it)
+        val machineId = File("$rootfsDir/etc/machine-id")
+        if (!machineId.exists()) {
+            machineId.parentFile?.mkdirs()
+            machineId.writeText("10000000000000000000000000000000\n")
+        }
+
+        // 4. Ensure policy-rc.d prevents services from auto-starting during install
+        //    (they'd fail inside proot anyway)
+        val policyRc = File("$rootfsDir/usr/sbin/policy-rc.d")
+        policyRc.parentFile?.mkdirs()
+        policyRc.writeText("#!/bin/sh\nexit 101\n")
+        policyRc.setExecutable(true, false)
+
+        // 5. Register Android user/groups in rootfs (matching proot-distro).
+        //    dpkg and apt need valid user/group databases.
+        registerAndroidUsers()
+
+        // 6. Write /etc/hosts (some post-install scripts need hostname resolution)
+        val hosts = File("$rootfsDir/etc/hosts")
+        if (!hosts.exists() || !hosts.readText().contains("localhost")) {
+            hosts.writeText(
+                "127.0.0.1   localhost.localdomain localhost\n" +
+                "::1         localhost.localdomain localhost ip6-localhost ip6-loopback\n"
+            )
+        }
+
+        // 7. Ensure /tmp exists with world-writable + sticky permissions
+        //    (needed for /dev/shm bind mount and general temp file usage)
+        val tmpDir = File("$rootfsDir/tmp")
+        tmpDir.mkdirs()
+        tmpDir.setReadable(true, false)
+        tmpDir.setWritable(true, false)
+        tmpDir.setExecutable(true, false)
+
+        // 8. Fix executable permissions on critical directories.
+        //    Our Java extraction might not preserve all permission bits correctly
+        //    (dpkg error 100 = "Could not exec dpkg" = permission issue).
+        //    Recursively ensure all files in bin/sbin/lib dirs are executable.
+        fixBinPermissions()
+        ensureDefaultTimezone()
+    }
+
+    private fun ensureDefaultTimezone() {
+        val rootfs = File(rootfsDir)
+        if (!rootfs.exists()) {
+            return
+        }
+
+        val timezone = "Asia/Shanghai"
+        val timezoneFile = File("$rootfsDir/etc/timezone")
+        timezoneFile.parentFile?.mkdirs()
+        timezoneFile.writeText("$timezone\n")
+
+        val zoneinfo = File("$rootfsDir/usr/share/zoneinfo/$timezone")
+        if (!zoneinfo.exists()) {
+            return
+        }
+
+        val localtime = File("$rootfsDir/etc/localtime")
+        try {
+            localtime.delete()
+        } catch (_: Exception) {}
+
+        try {
+            Os.symlink("/usr/share/zoneinfo/$timezone", localtime.absolutePath)
+        } catch (_: Exception) {
+            try {
+                zoneinfo.copyTo(localtime, overwrite = true)
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Ensure all files in executable directories have the execute bit set.
+     * Java's File API doesn't support full Unix permissions, so tar extraction
+     * may leave some binaries without +x, causing "Could not exec dpkg" (error 100).
+     */
+    private fun fixBinPermissions() {
+        // Directories whose files (recursively) must be executable
+        val recursiveExecDirs = listOf(
+            "$rootfsDir/usr/bin",
+            "$rootfsDir/usr/sbin",
+            "$rootfsDir/usr/local/bin",
+            "$rootfsDir/usr/local/sbin",
+            "$rootfsDir/usr/lib/apt/methods",
+            "$rootfsDir/usr/lib/dpkg",
+            "$rootfsDir/usr/lib/git-core",     // git sub-commands (git-remote-https, etc.)
+            "$rootfsDir/usr/libexec",
+            "$rootfsDir/var/lib/dpkg/info",    // dpkg maintainer scripts (preinst/postinst/prerm/postrm)
+            "$rootfsDir/usr/share/debconf",    // debconf frontend scripts
+            // These might be symlinks to usr/* in merged /usr, but
+            // if they're real dirs we need to fix them too
+            "$rootfsDir/bin",
+            "$rootfsDir/sbin",
+        )
+        for (dirPath in recursiveExecDirs) {
+            val dir = File(dirPath)
+            if (dir.exists() && dir.isDirectory) {
+                fixExecRecursive(dir)
+            }
+        }
+        // Also fix shared libraries (dpkg, apt, etc. link against them)
+        val libDirs = listOf(
+            "$rootfsDir/usr/lib",
+            "$rootfsDir/lib",
+        )
+        for (dirPath in libDirs) {
+            val dir = File(dirPath)
+            if (dir.exists() && dir.isDirectory) {
+                fixSharedLibsRecursive(dir)
+            }
+        }
+    }
+
+    /** Recursively set +rx on all regular files in a directory tree. */
+    private fun fixExecRecursive(dir: File) {
+        dir.listFiles()?.forEach { file ->
+            if (file.isDirectory) {
+                fixExecRecursive(file)
+            } else if (file.isFile) {
+                file.setReadable(true, false)
+                file.setExecutable(true, false)
+            }
+        }
+    }
+
+    private fun fixSharedLibsRecursive(dir: File) {
+        dir.listFiles()?.forEach { file ->
+            if (file.isDirectory) {
+                fixSharedLibsRecursive(file)
+            } else if (file.name.endsWith(".so") || file.name.contains(".so.")) {
+                file.setReadable(true, false)
+                file.setExecutable(true, false)
+            }
+        }
+    }
+
+    /**
+     * Register Android UID/GID in the rootfs user databases,
+     * matching what proot-distro does during installation.
+     * This ensures dpkg/apt can resolve user/group names.
+     */
+    private fun registerAndroidUsers() {
+        val uid = android.os.Process.myUid()
+        val gid = uid // On Android, primary GID == UID
+
+        // Ensure files are writable
+        for (name in listOf("passwd", "shadow", "group", "gshadow")) {
+            val f = File("$rootfsDir/etc/$name")
+            if (f.exists()) f.setWritable(true, false)
+        }
+
+        // Add Android app user to /etc/passwd
+        val passwd = File("$rootfsDir/etc/passwd")
+        if (passwd.exists()) {
+            val content = passwd.readText()
+            if (!content.contains("aid_android")) {
+                passwd.appendText("aid_android:x:$uid:$gid:Android:/:/sbin/nologin\n")
+            }
+        }
+
+        // Add to /etc/shadow
+        val shadow = File("$rootfsDir/etc/shadow")
+        if (shadow.exists()) {
+            val content = shadow.readText()
+            if (!content.contains("aid_android")) {
+                shadow.appendText("aid_android:*:18446:0:99999:7:::\n")
+            }
+        }
+
+        // Add Android groups to /etc/group
+        val group = File("$rootfsDir/etc/group")
+        if (group.exists()) {
+            val content = group.readText()
+            // Add common Android groups that packages might reference
+            val groups = mapOf(
+                "aid_inet" to 3003,       // Internet access
+                "aid_net_raw" to 3004,    // Raw sockets
+                "aid_sdcard_rw" to 1015,  // SD card write
+                "aid_android" to gid,     // App's own group
+            )
+            for ((name, id) in groups) {
+                if (!content.contains(name)) {
+                    group.appendText("$name:x:$id:root,aid_android\n")
+                }
+            }
+        }
+
+        // Add to /etc/gshadow
+        val gshadow = File("$rootfsDir/etc/gshadow")
+        if (gshadow.exists()) {
+            val content = gshadow.readText()
+            val groups = listOf("aid_inet", "aid_net_raw", "aid_sdcard_rw", "aid_android")
+            for (name in groups) {
+                if (!content.contains(name)) {
+                    gshadow.appendText("$name:*::root,aid_android\n")
+                }
+            }
+        }
+    }
+
+    /**
+     * Extract a Node.js binary tarball (.tar.xz) into the rootfs.
+     * The tarball contains node-v24.x.x-linux-arm64/ with bin/, lib/, etc.
+     * We extract its contents into /usr/local/ so node and npm are on PATH.
+     * This bypasses the NodeSource repo (curl/gpg fail in proot).
+     */
+    fun extractNodeTarball(tarPath: String) {
+        val destDir = File("$rootfsDir/usr/local")
+        destDir.mkdirs()
+
+        var entryCount = 0
+        try {
+            FileInputStream(tarPath).use { fis ->
+                BufferedInputStream(fis, 256 * 1024).use { bis ->
+                    XZCompressorInputStream(bis).use { xzis ->
+                        TarArchiveInputStream(xzis).use { tis ->
+                            var entry: TarArchiveEntry? = tis.nextEntry
+                            while (entry != null) {
+                                entryCount++
+                                val name = entry.name
+
+                                // Strip the top-level directory (node-v24.x.x-linux-arm64/)
+                                val slashIdx = name.indexOf('/')
+                                if (slashIdx < 0 || slashIdx == name.length - 1) {
+                                    entry = tis.nextEntry
+                                    continue
+                                }
+                                val relPath = name.substring(slashIdx + 1)
+                                if (relPath.isEmpty()) {
+                                    entry = tis.nextEntry
+                                    continue
+                                }
+
+                                val outFile = File(destDir, relPath)
+
+                                when {
+                                    entry.isDirectory -> {
+                                        outFile.mkdirs()
+                                    }
+                                    entry.isSymbolicLink -> {
+                                        try {
+                                            if (outFile.exists()) outFile.delete()
+                                            outFile.parentFile?.mkdirs()
+                                            Os.symlink(entry.linkName, outFile.absolutePath)
+                                        } catch (_: Exception) {}
+                                    }
+                                    else -> {
+                                        outFile.parentFile?.mkdirs()
+                                        FileOutputStream(outFile).use { fos ->
+                                            val buf = ByteArray(65536)
+                                            var len: Int
+                                            while (tis.read(buf).also { len = it } != -1) {
+                                                fos.write(buf, 0, len)
+                                            }
+                                        }
+                                        outFile.setReadable(true, false)
+                                        outFile.setWritable(true, false)
+                                        // Set executable for bin/ files and .so files
+                                        val mode = entry.mode
+                                        if (mode and 0b001_001_001 != 0 ||
+                                            relPath.startsWith("bin/") ||
+                                            relPath.contains(".so")) {
+                                            outFile.setExecutable(true, false)
+                                        }
+                                    }
+                                }
+
+                                entry = tis.nextEntry
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            throw RuntimeException(
+                "Node.js tarball extraction failed after $entryCount entries: ${e.message}"
+            )
+        }
+
+        // Verify node binary exists
+        val nodeBin = File("$rootfsDir/usr/local/bin/node")
+        if (!nodeBin.exists()) {
+            throw RuntimeException(
+                "Node.js extraction failed: node binary not found at /usr/local/bin/node " +
+                "(processed $entryCount entries)"
+            )
+        }
+        nodeBin.setExecutable(true, false)
+
+        // Clean up tarball
+        File(tarPath).delete()
+    }
+
+    /**
+     * Create shell wrapper scripts in /usr/local/bin/ for a globally-installed
+     * npm package. npm's `install -g` creates symlinks, but symlinks can fail
+     * silently in proot. Shell wrappers are a reliable fallback.
+     *
+     * Reads the package.json `bin` field directly from the rootfs filesystem
+     * (no shell escaping needed).
+     */
+    fun createBinWrappers(packageName: String) {
+        val pkgDir = File("$rootfsDir/usr/local/lib/node_modules/$packageName")
+        val pkgJson = File(pkgDir, "package.json")
+        if (!pkgJson.exists()) {
+            throw RuntimeException("Package not found: $pkgDir")
+        }
+
+        // Simple JSON parsing for the "bin" field
+        val json = pkgJson.readText()
+        val binDir = File("$rootfsDir/usr/local/bin")
+        binDir.mkdirs()
+
+        // Parse bin entries from package.json
+        // "bin": "cli.js"  OR  "bin": {"openclaw": "bin/openclaw.js", ...}
+        val binEntries = mutableMapOf<String, String>()
+
+        val binMatch = Regex(""""bin"\s*:\s*(\{[^}]*\}|"[^"]*")""").find(json)
+        if (binMatch != null) {
+            val value = binMatch.groupValues[1]
+            if (value.startsWith("{")) {
+                // Object: {"name": "path", ...}
+                Regex(""""([^"]+)"\s*:\s*"([^"]+)"""").findAll(value).forEach {
+                    binEntries[it.groupValues[1]] = it.groupValues[2]
+                }
+            } else {
+                // String: "path" 鈥?use package name as bin name
+                val path = value.trim('"')
+                binEntries[packageName] = path
+            }
+        }
+
+        if (binEntries.isEmpty()) {
+            // Fallback: check for common entry points
+            for (candidate in listOf("bin/$packageName.js", "bin/$packageName", "cli.js", "index.js")) {
+                if (File(pkgDir, candidate).exists()) {
+                    binEntries[packageName] = candidate
+                    break
+                }
+            }
+        }
+
+        for ((name, relPath) in binEntries) {
+            val binFile = File(binDir, name)
+            // Only create wrapper if the symlink doesn't already work
+            if (binFile.exists() && binFile.canExecute()) continue
+
+            val target = "/usr/local/lib/node_modules/$packageName/$relPath"
+            val wrapper = "#!/bin/sh\nexec node \"$target\" \"\$@\"\n"
+            binFile.writeText(wrapper)
+            binFile.setExecutable(true, false)
+            binFile.setReadable(true, false)
+        }
+    }
+
+    private fun deleteRecursively(file: File) {
+        // CRITICAL: Do NOT follow symlinks 鈥?the rootfs contains symlinks
+        // to /storage/emulated/0 (sdcard). Following them would delete the
+        // user's photos, downloads, and other real files.
+
+        // Path boundary check: refuse to delete anything outside filesDir.
+        // This is a secondary safeguard against accidental data loss (#67, #63).
+        try {
+            if (!file.canonicalPath.startsWith(filesDir)) {
+                return
+            }
+        } catch (_: Exception) {
+            return // If we can't resolve the path, don't risk deleting
+        }
+
+        try {
+            val path = file.toPath()
+            if (java.nio.file.Files.isSymbolicLink(path)) {
+                file.delete()
+                return
+            }
+        } catch (_: Exception) {}
+        if (file.isDirectory) {
+            file.listFiles()?.forEach { deleteRecursively(it) }
+        }
+        file.delete()
+    }
+
+    fun installBionicBypass() {
+        val bypassDir = File("$rootfsDir/root/.openclaw")
+        bypassDir.mkdirs()
+
+        // 1. CWD fix 鈥?proot's getcwd() syscall returns ENOSYS on Android 10+.
+        //    process.cwd() is called by Node's CJS module resolver and npm.
+        //    This MUST be loaded before any other module.
+        val cwdFixContent = """
+// OpenClaw CWD Fix - Auto-generated
+// proot on Android 10+ returns ENOSYS for getcwd() syscall.
+// Patch process.cwd to return /root on failure.
+const _origCwd = process.cwd;
+process.cwd = function() {
+  try { return _origCwd.call(process); }
+  catch(e) { return process.env.HOME || '/root'; }
+};
+""".trimIndent()
+        File(bypassDir, "cwd-fix.js").writeText(cwdFixContent)
+
+        // 2. Node wrapper 鈥?patches broken syscalls then runs the target script.
+        //    Used during bootstrap (where NODE_OPTIONS must be unset).
+        //    Usage: node /root/.openclaw/node-wrapper.js <script> [args...]
+        val wrapperContent = """
+// OpenClaw Node Wrapper - Auto-generated
+// Patches broken proot syscalls, then loads the target script.
+// Used for bootstrap-time npm operations.
+
+// --- Load shared proot compatibility patches ---
+require('/root/.openclaw/proot-compat.js');
+
+// Load target script
+const script = process.argv[2];
+if (script) {
+  process.argv = [process.argv[0], script, ...process.argv.slice(3)];
+  require(script);
+} else {
+  console.log('Usage: node node-wrapper.js <script> [args...]');
+  process.exit(1);
+}
+""".trimIndent()
+        File(bypassDir, "node-wrapper.js").writeText(wrapperContent)
+
+        // 3. Shared proot compatibility patches 鈥?used by both node-wrapper.js
+        //    (bootstrap) and bionic-bypass.js (runtime).
+        //    Patches: process.cwd, fs.mkdir, child_process.spawn, os.*, fs.rename,
+        //    fs.watch, fs.chmod/chown.
+        val prootCompatContent = """
+// OpenClaw Proot Compatibility Layer - Auto-generated
+// Patches all known broken syscalls in proot on Android 10+.
+// This file is require()'d by both node-wrapper.js and bionic-bypass.js.
+
+'use strict';
+
+// ====================================================================
+// 1. process.cwd() 鈥?getcwd() returns ENOSYS in proot
+// ====================================================================
+const _origCwd = process.cwd;
+process.cwd = function() {
+  try { return _origCwd.call(process); }
+  catch(e) { return process.env.HOME || '/root'; }
+};
+
+// ====================================================================
+// 2. os module patches 鈥?various /proc reads fail in proot
+// ====================================================================
+const _os = require('os');
+
+// os.hostname() 鈥?may fail reading /proc/sys/kernel/hostname
+const _origHostname = _os.hostname;
+_os.hostname = function() {
+  try { return _origHostname.call(_os); }
+  catch(e) { return 'localhost'; }
+};
+
+// os.tmpdir() 鈥?ensure it returns /tmp
+const _origTmpdir = _os.tmpdir;
+_os.tmpdir = function() {
+  try {
+    const t = _origTmpdir.call(_os);
+    return t || '/tmp';
+  } catch(e) { return '/tmp'; }
+};
+
+// os.homedir() 鈥?may fail with ENOSYS
+const _origHomedir = _os.homedir;
+_os.homedir = function() {
+  try { return _origHomedir.call(_os); }
+  catch(e) { return process.env.HOME || '/root'; }
+};
+
+// os.userInfo() 鈥?getpwuid may fail in proot
+const _origUserInfo = _os.userInfo;
+_os.userInfo = function(opts) {
+  try { return _origUserInfo.call(_os, opts); }
+  catch(e) {
+    return {
+      uid: 0, gid: 0,
+      username: 'root',
+      homedir: process.env.HOME || '/root',
+      shell: '/bin/bash'
+    };
+  }
+};
+
+// os.cpus() 鈥?reading /proc/cpuinfo may fail
+const _origCpus = _os.cpus;
+_os.cpus = function() {
+  try {
+    const cpus = _origCpus.call(_os);
+    if (cpus && cpus.length > 0) return cpus;
+  } catch(e) {}
+  return [{ model: 'ARM', speed: 2000, times: { user: 0, nice: 0, sys: 0, idle: 0, irq: 0 } }];
+};
+
+// os.totalmem() / os.freemem() 鈥?reading /proc/meminfo may fail
+const _origTotalmem = _os.totalmem;
+_os.totalmem = function() {
+  try { return _origTotalmem.call(_os); }
+  catch(e) { return 4 * 1024 * 1024 * 1024; } // 4GB fallback
+};
+const _origFreemem = _os.freemem;
+_os.freemem = function() {
+  try { return _origFreemem.call(_os); }
+  catch(e) { return 2 * 1024 * 1024 * 1024; } // 2GB fallback
+};
+
+// os.networkInterfaces() 鈥?Android blocks getifaddrs()
+const _origNetIf = _os.networkInterfaces;
+_os.networkInterfaces = function() {
+  try {
+    const ifaces = _origNetIf.call(_os);
+    if (ifaces && Object.keys(ifaces).length > 0) return ifaces;
+  } catch(e) {}
+  return {};
+};
+
+// ====================================================================
+// 3. fs.mkdir 鈥?mkdirat() returns ENOSYS in proot
+// ====================================================================
+const _fs = require('fs');
+const _path = require('path');
+const _origMkdirSync = _fs.mkdirSync;
+_fs.mkdirSync = function(p, options) {
+  try {
+    return _origMkdirSync.call(_fs, p, options);
+  } catch(e) {
+    if (e.code === 'ENOSYS' || (e.code === 'ENOENT' && options && options.recursive)) {
+      const parts = _path.resolve(String(p)).split(_path.sep).filter(Boolean);
+      let current = '';
+      for (const part of parts) {
+        current += _path.sep + part;
+        try { _origMkdirSync.call(_fs, current); }
+        catch(e2) { if (e2.code !== 'EEXIST' && e2.code !== 'EISDIR') { /* skip */ } }
+      }
+      return undefined;
+    }
+    throw e;
+  }
+};
+const _origMkdir = _fs.mkdir;
+_fs.mkdir = function(p, options, cb) {
+  if (typeof options === 'function') { cb = options; options = undefined; }
+  try { _fs.mkdirSync(p, options); if (cb) cb(null); }
+  catch(e) { if (cb) cb(e); else throw e; }
+};
+const _fsp = _fs.promises;
+if (_fsp) {
+  const _origMkdirP = _fsp.mkdir;
+  _fsp.mkdir = async function(p, options) {
+    try { return await _origMkdirP.call(_fsp, p, options); }
+    catch(e) {
+      if (e.code === 'ENOSYS' || (e.code === 'ENOENT' && options && options.recursive)) {
+        _fs.mkdirSync(p, options); return undefined;
+      }
+      throw e;
+    }
+  };
+}
+
+// ====================================================================
+// 4. fs.rename 鈥?renameat2() may ENOSYS in proot; fallback to copy+unlink
+// ====================================================================
+const _origRenameSync = _fs.renameSync;
+_fs.renameSync = function(oldPath, newPath) {
+  try { return _origRenameSync.call(_fs, oldPath, newPath); }
+  catch(e) {
+    if (e.code === 'ENOSYS' || e.code === 'EXDEV') {
+      _fs.copyFileSync(oldPath, newPath);
+      try { _fs.unlinkSync(oldPath); } catch(_) {}
+      return;
+    }
+    throw e;
+  }
+};
+const _origRename = _fs.rename;
+_fs.rename = function(oldPath, newPath, cb) {
+  _origRename.call(_fs, oldPath, newPath, function(err) {
+    if (err && (err.code === 'ENOSYS' || err.code === 'EXDEV')) {
+      try {
+        _fs.copyFileSync(oldPath, newPath);
+        try { _fs.unlinkSync(oldPath); } catch(_) {}
+        if (cb) cb(null);
+      } catch(e2) { if (cb) cb(e2); }
+    } else { if (cb) cb(err); }
+  });
+};
+if (_fsp) {
+  const _origRenameP = _fsp.rename;
+  _fsp.rename = async function(oldPath, newPath) {
+    try { return await _origRenameP.call(_fsp, oldPath, newPath); }
+    catch(e) {
+      if (e.code === 'ENOSYS' || e.code === 'EXDEV') {
+        await _fsp.copyFile(oldPath, newPath);
+        try { await _fsp.unlink(oldPath); } catch(_) {}
+        return;
+      }
+      throw e;
+    }
+  };
+}
+
+// ====================================================================
+// 5. fs.chmod/chown 鈥?fchmodat/fchownat may fail; tolerate ENOSYS
+// ====================================================================
+for (const fn of ['chmod', 'chown', 'lchown']) {
+  const origSync = _fs[fn + 'Sync'];
+  if (origSync) {
+    _fs[fn + 'Sync'] = function() {
+      try { return origSync.apply(_fs, arguments); }
+      catch(e) { if (e.code === 'ENOSYS') return; throw e; }
+    };
+  }
+  const origAsync = _fs[fn];
+  if (origAsync) {
+    _fs[fn] = function() {
+      const args = Array.from(arguments);
+      const cb = typeof args[args.length - 1] === 'function' ? args.pop() : null;
+      try { origSync.apply(_fs, args); if (cb) cb(null); }
+      catch(e) { if (e.code === 'ENOSYS') { if (cb) cb(null); } else { if (cb) cb(e); else throw e; } }
+    };
+  }
+}
+
+// ====================================================================
+// 6. fs.watch 鈥?inotify may fail; provide silent no-op fallback
+// ====================================================================
+const _origWatch = _fs.watch;
+_fs.watch = function(filename, options, listener) {
+  try { return _origWatch.call(_fs, filename, options, listener); }
+  catch(e) {
+    if (e.code === 'ENOSYS' || e.code === 'ENOSPC' || e.code === 'ENOENT') {
+      // Return a fake watcher that does nothing
+      const EventEmitter = require('events');
+      const fake = new EventEmitter();
+      fake.close = function() {};
+      fake.ref = function() { return this; };
+      fake.unref = function() { return this; };
+      return fake;
+    }
+    throw e;
+  }
+};
+
+// ====================================================================
+// 7. child_process.spawn 鈥?handle ENOSYS (proot) and ENOENT (missing binary).
+//    Command-aware mock:
+//    - Side-effect cmds (git, node-gyp, cmake, make): return FAILURE (128)
+//      so npm doesn't look for files they were supposed to create
+//    - Everything else: return SUCCESS (0) 鈥?npm internals proceed
+//    Handles both ENOSYS (proot syscall fail) and ENOENT (binary not found,
+//    e.g. git not installed in rootfs).
+// ====================================================================
+const _cp = require('child_process');
+const _EventEmitter = require('events');
+
+// Commands that produce side effects (files). Must return failure.
+// Note: node-gyp, make, cmake are NOT mocked 鈥?python3/make/g++ are
+// installed in the rootfs so native addon compilation works properly.
+function _isSideEffectCmd(cmd) {
+  const base = String(cmd).split('/').pop();
+  return base === 'git' || base === 'cmake';
+}
+
+// Should this error be mocked? ENOSYS always, ENOENT for side-effect cmds.
+function _shouldMock(errCode, cmd) {
+  if (errCode === 'ENOSYS') return true;
+  if (errCode === 'ENOENT' && _isSideEffectCmd(cmd)) return true;
+  return false;
+}
+
+function _makeFakeChild(exitCode) {
+  const fake = new _EventEmitter();
+  fake.stdout = new (require('stream').Readable)({ read() { this.push(null); } });
+  fake.stderr = new (require('stream').Readable)({ read() { this.push(null); } });
+  fake.stdin = new (require('stream').Writable)({ write(c,e,cb) { cb(); } });
+  fake.pid = 0;
+  fake.exitCode = null;
+  fake.kill = function() { return false; };
+  fake.ref = function() { return this; };
+  fake.unref = function() { return this; };
+  fake.connected = false;
+  fake.disconnect = function() {};
+  process.nextTick(() => {
+    fake.exitCode = exitCode;
+    fake.emit('close', exitCode, null);
+  });
+  return fake;
+}
+
+function _makeFakeSyncResult(code) {
+  return { status: code, signal: null, stdout: Buffer.alloc(0),
+           stderr: Buffer.alloc(0),
+           pid: 0, output: [null, Buffer.alloc(0), Buffer.alloc(0)],
+           error: null };
+}
+
+const _origSpawn = _cp.spawn;
+_cp.spawn = function(cmd, args, options) {
+  try {
+    const child = _origSpawn.call(_cp, cmd, args, options);
+    child.on('error', (err) => {
+      if (_shouldMock(err.code, cmd)) {
+        const code = _isSideEffectCmd(cmd) ? 128 : 0;
+        child.emit('close', code, null);
+      }
+    });
+    return child;
+  } catch(e) {
+    if (_shouldMock(e.code, cmd)) {
+      return _makeFakeChild(_isSideEffectCmd(cmd) ? 128 : 0);
+    }
+    throw e;
+  }
+};
+const _origSpawnSync = _cp.spawnSync;
+_cp.spawnSync = function(cmd, args, options) {
+  try {
+    const r = _origSpawnSync.call(_cp, cmd, args, options);
+    if (r.error && _shouldMock(r.error.code, cmd)) {
+      return _makeFakeSyncResult(_isSideEffectCmd(cmd) ? 128 : 0);
+    }
+    return r;
+  } catch(e) {
+    if (_shouldMock(e.code, cmd)) {
+      return _makeFakeSyncResult(_isSideEffectCmd(cmd) ? 128 : 0);
+    }
+    throw e;
+  }
+};
+// Also patch exec/execFile which are wrappers around spawn
+const _origExecFile = _cp.execFile;
+_cp.execFile = function(file, args, options, cb) {
+  if (typeof args === 'function') { cb = args; args = []; options = {}; }
+  if (typeof options === 'function') { cb = options; options = {}; }
+  try { return _origExecFile.call(_cp, file, args, options, cb); }
+  catch(e) {
+    if (_shouldMock(e.code, file)) {
+      const code = _isSideEffectCmd(file) ? 128 : 0;
+      if (cb) cb(code ? Object.assign(new Error('spawn failed'), {code:e.code}) : null, '', '');
+      return;
+    }
+    throw e;
+  }
+};
+const _origExecFileSync = _cp.execFileSync;
+_cp.execFileSync = function(file, args, options) {
+  try { return _origExecFileSync.call(_cp, file, args, options); }
+  catch(e) {
+    if (_shouldMock(e.code, file)) {
+      if (_isSideEffectCmd(file)) throw e;
+      return Buffer.alloc(0);
+    }
+    throw e;
+  }
+};
+""".trimIndent()
+        File(bypassDir, "proot-compat.js").writeText(prootCompatContent)
+
+        // 4. Bionic bypass 鈥?comprehensive runtime patcher for openclaw.
+        //    Loaded via NODE_OPTIONS="--require /root/.openclaw/bionic-bypass.js"
+        val bypassContent = """
+// OpenClaw Bionic Bypass - Auto-generated
+// Comprehensive runtime compatibility layer for proot on Android 10+.
+// Loaded via NODE_OPTIONS before any application code runs.
+
+// Load all proot compatibility patches (shared with node-wrapper.js)
+require('/root/.openclaw/proot-compat.js');
+""".trimIndent()
+
+        File(bypassDir, "bionic-bypass.js").writeText(bypassContent)
+
+        // 5. Git config 鈥?write .gitconfig directly to rootfs to avoid shell
+        //    quoting issues when running `git config` inside proot via bash -c.
+        //    Rewrites SSH URLs to HTTPS (no SSH keys in proot).
+        //    npm dependencies like @whiskeysockets/libsignal-node use git+ssh.
+        val gitConfig = File("$rootfsDir/root/.gitconfig")
+        gitConfig.writeText(
+            "[url \"https://github.com/\"]\n" +
+            "\tinsteadOf = ssh://git@github.com/\n" +
+            "\tinsteadOf = git@github.com:\n" +
+            "[advice]\n" +
+            "\tdetachedHead = false\n"
+        )
+
+        // Patch .bashrc
+        val bashrc = File("$rootfsDir/root/.bashrc")
+        val exportLine = "export NODE_OPTIONS=\"--require /root/.openclaw/bionic-bypass.js\""
+
+        val existing = if (bashrc.exists()) bashrc.readText() else ""
+        if (!existing.contains("bionic-bypass")) {
+            bashrc.appendText("\n# OpenClaw Bionic Bypass\n$exportLine\n")
+        }
+    }
+
+    /**
+     * Read DNS servers from Android's active network. Falls back to
+     * public DNS servers if system DNS is unavailable (#60).
+     */
+    private fun getSystemDnsServers(): String {
+        val fallbackServers = listOf("223.5.5.5", "119.29.29.29", "8.8.8.8")
+        try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            if (cm != null) {
+                val network = cm.activeNetwork
+                if (network != null) {
+                    val linkProps: LinkProperties? = cm.getLinkProperties(network)
+                    val dnsServers = linkProps?.dnsServers
+                    if (dnsServers != null && dnsServers.isNotEmpty()) {
+                        val servers = (dnsServers.mapNotNull { it.hostAddress } + fallbackServers)
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                            .distinct()
+                            .take(3)
+                        return servers.joinToString("\n") { "nameserver $it" } + "\n"
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return fallbackServers.joinToString("\n") { "nameserver $it" } + "\n"
+    }
+
+    fun writeResolvConf() {
+        val content = getSystemDnsServers()
+        val resolvFile = HostFilesystem.ensureFileTargetReady(
+            "$configDir/resolv.conf",
+            "host resolv.conf"
+        )
+        resolvFile.writeText(content)
+
+        // Also write directly into rootfs /etc/resolv.conf so DNS works
+        // even if the bind-mount fails or hasn't been set up yet (#40).
+        try {
+            val rootfsResolv = HostFilesystem.ensureFileTargetReady(
+                "$rootfsDir/etc/resolv.conf",
+                "rootfs resolv.conf"
+            )
+            rootfsResolv.writeText(content)
+        } catch (_: Exception) {}
+    }
+
+    fun exportWorkspaceBackup(
+        output: OutputStream,
+        appVersion: String,
+        openClawVersion: String?
+    ) {
+        setupDirectories()
+        val workspaceRoot = workspaceRootDir
+        workspaceRoot.mkdirs()
+
+        ZipOutputStream(BufferedOutputStream(output)).use { zip ->
+            val manifest = JSONObject().apply {
+                put("format", workspaceBackupFormat)
+                put("schemaVersion", 1)
+                put("appVersion", appVersion.trim())
+                if (openClawVersion.isNullOrBlank()) {
+                    put("openClawVersion", JSONObject.NULL)
+                } else {
+                    put("openClawVersion", openClawVersion.trim())
+                }
+                put("createdAt", java.time.Instant.now().toString())
+                put("workspaceRoot", "/root/.openclaw")
+                put(
+                    "entries",
+                    JSONArray().apply {
+                        workspaceBackupRelativePaths.forEach { put(it) }
+                    }
+                )
+            }
+
+            zip.putNextEntry(ZipEntry(workspaceBackupManifestName))
+            zip.write(manifest.toString(2).toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+
+            workspaceBackupRelativePaths.forEach { relativePath ->
+                val target = File(workspaceRoot, relativePath)
+                if (target.exists()) {
+                    addWorkspaceBackupEntry(zip, target, relativePath)
+                }
+            }
+        }
+    }
+
+    fun inspectWorkspaceBackup(path: String): Map<String, Any>? {
+        val manifest = readWorkspaceBackupManifest(File(path)) ?: return null
+        val entries = ArrayList<String>()
+        val jsonEntries = manifest.optJSONArray("entries")
+        if (jsonEntries != null) {
+            for (index in 0 until jsonEntries.length()) {
+                val value = jsonEntries.optString(index)
+                if (value.isNotBlank()) {
+                    entries.add(value)
+                }
+            }
+        }
+
+        return hashMapOf(
+            "format" to manifest.optString("format", ""),
+            "schemaVersion" to manifest.optInt("schemaVersion", 1),
+            "appVersion" to manifest.optString("appVersion", ""),
+            "openClawVersion" to manifest.optString("openClawVersion", ""),
+            "createdAt" to manifest.optString("createdAt", ""),
+            "entries" to entries
+        )
+    }
+
+    fun restoreWorkspaceBackup(path: String) {
+        val archiveFile = File(path)
+        val manifest = readWorkspaceBackupManifest(archiveFile)
+            ?: throw IllegalArgumentException(
+                "Selected file is not an OpenClaw workspace backup"
+            )
+
+        if (manifest.optString("format") != workspaceBackupFormat) {
+            throw IllegalArgumentException("Unsupported workspace backup format")
+        }
+
+        setupDirectories()
+        val workspaceRoot = workspaceRootDir
+        workspaceRoot.mkdirs()
+        val workspaceCanonicalRoot = workspaceRoot.canonicalPath
+
+        validateWorkspaceBackupArchive(archiveFile)
+        clearWorkspaceBackupTargets()
+
+        ZipFile(archiveFile).use { zip ->
+            val entries = zip.entries()
+            while (entries.hasMoreElements()) {
+                val entry = entries.nextElement()
+                val normalizedName = entry.name.replace('\\', '/')
+                if (normalizedName == workspaceBackupManifestName) {
+                    continue
+                }
+                if (!normalizedName.startsWith("workspace/")) {
+                    throw IllegalArgumentException(
+                        "Unsupported workspace backup entry: $normalizedName"
+                    )
+                }
+
+                val relativePath = normalizedName
+                    .removePrefix("workspace/")
+                    .trim('/')
+                if (relativePath.isEmpty()) {
+                    continue
+                }
+                if (!isAllowedWorkspaceBackupPath(relativePath) ||
+                    relativePath.contains("..") ||
+                    relativePath.startsWith("/")
+                ) {
+                    throw IllegalArgumentException(
+                        "Unsafe workspace backup entry: $normalizedName"
+                    )
+                }
+
+                val outputFile = File(workspaceRoot, relativePath)
+                outputFile.parentFile?.mkdirs()
+                val canonicalOutput = outputFile.canonicalPath
+                if (canonicalOutput != workspaceCanonicalRoot &&
+                    !canonicalOutput.startsWith("$workspaceCanonicalRoot${File.separator}")
+                ) {
+                    throw IllegalArgumentException(
+                        "Workspace backup entry escapes target directory: $normalizedName"
+                    )
+                }
+
+                if (entry.isDirectory || normalizedName.endsWith("/")) {
+                    outputFile.mkdirs()
+                    continue
+                }
+
+                zip.getInputStream(entry).use { input ->
+                    FileOutputStream(outputFile).use { fileOutput ->
+                        input.copyTo(fileOutput)
+                    }
+                }
+                outputFile.setReadable(true, false)
+                outputFile.setWritable(true, false)
+            }
+        }
+
+        setupDirectories()
+        installBionicBypass()
+        writeResolvConf()
+    }
+
+    private fun addWorkspaceBackupEntry(
+        zip: ZipOutputStream,
+        file: File,
+        relativePath: String
+    ) {
+        val normalizedPath = relativePath.replace('\\', '/').trim('/')
+        if (normalizedPath.isEmpty()) {
+            return
+        }
+
+        try {
+            if (java.nio.file.Files.isSymbolicLink(file.toPath())) {
+                return
+            }
+        } catch (_: Exception) {}
+
+        if (file.isDirectory) {
+            zip.putNextEntry(ZipEntry("workspace/$normalizedPath/"))
+            zip.closeEntry()
+            file.listFiles()
+                ?.sortedBy { it.name }
+                ?.forEach { child ->
+                    addWorkspaceBackupEntry(
+                        zip,
+                        child,
+                        "$normalizedPath/${child.name}"
+                    )
+                }
+            return
+        }
+
+        zip.putNextEntry(ZipEntry("workspace/$normalizedPath"))
+        FileInputStream(file).use { input ->
+            input.copyTo(zip)
+        }
+        zip.closeEntry()
+    }
+
+    private fun clearWorkspaceBackupTargets() {
+        val workspaceRoot = workspaceRootDir
+        workspaceBackupRelativePaths.forEach { relativePath ->
+            val target = File(workspaceRoot, relativePath)
+            if (target.exists()) {
+                deleteRecursively(target)
+            }
+        }
+    }
+
+    private fun validateWorkspaceBackupArchive(archiveFile: File) {
+        ZipFile(archiveFile).use { zip ->
+            val entries = zip.entries()
+            while (entries.hasMoreElements()) {
+                val entry = entries.nextElement()
+                val normalizedName = entry.name.replace('\\', '/')
+                if (normalizedName == workspaceBackupManifestName) {
+                    continue
+                }
+                if (!normalizedName.startsWith("workspace/")) {
+                    throw IllegalArgumentException(
+                        "Unsupported workspace backup entry: $normalizedName"
+                    )
+                }
+
+                val relativePath = normalizedName
+                    .removePrefix("workspace/")
+                    .trim('/')
+                if (relativePath.isEmpty()) {
+                    continue
+                }
+                if (!isAllowedWorkspaceBackupPath(relativePath) ||
+                    relativePath.contains("..") ||
+                    relativePath.startsWith("/")
+                ) {
+                    throw IllegalArgumentException(
+                        "Unsafe workspace backup entry: $normalizedName"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun isAllowedWorkspaceBackupPath(relativePath: String): Boolean {
+        return workspaceBackupRelativePaths.any { allowed ->
+            relativePath == allowed || relativePath.startsWith("$allowed/")
+        }
+    }
+
+    private fun readWorkspaceBackupManifest(archiveFile: File): JSONObject? {
+        if (!archiveFile.exists() || !archiveFile.isFile) {
+            return null
+        }
+
+        return try {
+            ZipFile(archiveFile).use { zip ->
+                val entry = zip.getEntry(workspaceBackupManifestName) ?: return null
+                val content = zip.getInputStream(entry)
+                    .bufferedReader(Charsets.UTF_8)
+                    .use { it.readText() }
+                val manifest = JSONObject(content)
+                if (manifest.optString("format") == workspaceBackupFormat) {
+                    manifest
+                } else {
+                    null
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Read a file from inside the rootfs (e.g. /root/.openclaw/openclaw.json). */
+    fun readRootfsFile(path: String): String? {
+        val file = File("$rootfsDir/$path")
+        return if (file.exists()) file.readText() else null
+    }
+
+    /** Write content to a file inside the rootfs, creating parent dirs as needed. */
+    fun writeRootfsFile(path: String, content: String) {
+        val file = File("$rootfsDir/$path")
+        file.parentFile?.mkdirs()
+        file.writeText(content)
+    }
+
+    fun copyBundledAssetToFile(assetPath: String, destinationPath: String) {
+        val assetKey = FlutterInjector.instance()
+            .flutterLoader()
+            .getLookupKeyForAsset(assetPath)
+        val destinationFile = File(destinationPath)
+        destinationFile.parentFile?.mkdirs()
+
+        try {
+            context.assets.open(assetKey).use { input ->
+                FileOutputStream(destinationFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+        } catch (e: FileNotFoundException) {
+            throw RuntimeException("Bundled asset not found: $assetPath")
+        }
+
+        destinationFile.setReadable(true, false)
+        destinationFile.setWritable(true, false)
+    }
+
+    /**
+     * Create fake /proc and /sys files that are bind-mounted into proot.
+     * Android restricts access to many /proc entries; proot-distro works
+     * around this by providing static fake data. We replicate that approach.
+     */
+    fun setupFakeSysdata() {
+        HostFilesystem.ensureDirectoryReady(configDir, "config directory")
+        val procDir = HostFilesystem.ensureDirectoryReady(
+            "$configDir/proc_fakes",
+            "fake /proc directory"
+        )
+        val sysDir = HostFilesystem.ensureDirectoryReady(
+            "$configDir/sys_fakes",
+            "fake /sys directory"
+        )
+
+        // /proc/loadavg
+        File(procDir, "loadavg").writeText("0.12 0.07 0.02 2/165 765\n")
+
+        // /proc/stat 鈥?matching proot-distro (8 CPUs)
+        File(procDir, "stat").writeText(
+            "cpu  1957 0 2877 93280 262 342 254 87 0 0\n" +
+            "cpu0 31 0 226 12027 82 10 4 9 0 0\n" +
+            "cpu1 45 0 290 11498 21 9 8 7 0 0\n" +
+            "cpu2 52 0 401 11730 36 15 6 10 0 0\n" +
+            "cpu3 42 0 268 11677 31 12 5 8 0 0\n" +
+            "cpu4 789 0 720 11364 26 100 83 18 0 0\n" +
+            "cpu5 486 0 438 11685 42 86 60 13 0 0\n" +
+            "cpu6 314 0 336 11808 45 68 52 11 0 0\n" +
+            "cpu7 198 0 198 11491 25 42 36 11 0 0\n" +
+            "intr 63361 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n" +
+            "ctxt 38014093\n" +
+            "btime 1694292441\n" +
+            "processes 26442\n" +
+            "procs_running 1\n" +
+            "procs_blocked 0\n" +
+            "softirq 75663 0 5903 6 25375 10774 0 243 11685 0 21677\n"
+        )
+
+        // /proc/uptime
+        File(procDir, "uptime").writeText("124.08 932.80\n")
+
+        // /proc/version 鈥?fake kernel info matching proot-distro v4.37.0
+        File(procDir, "version").writeText(
+            "Linux version ${ProcessManager.FAKE_KERNEL_RELEASE} (proot@termux) " +
+            "(gcc (GCC) 13.3.0, GNU ld (GNU Binutils) 2.42) " +
+            "${ProcessManager.FAKE_KERNEL_VERSION}\n"
+        )
+
+        // /proc/vmstat 鈥?matching proot-distro format
+        File(procDir, "vmstat").writeText(
+            "nr_free_pages 1743136\n" +
+            "nr_zone_inactive_anon 179281\n" +
+            "nr_zone_active_anon 7183\n" +
+            "nr_zone_inactive_file 22858\n" +
+            "nr_zone_active_file 51328\n" +
+            "nr_zone_unevictable 642\n" +
+            "nr_zone_write_pending 0\n" +
+            "nr_mlock 0\n" +
+            "nr_slab_reclaimable 7520\n" +
+            "nr_slab_unreclaimable 10776\n" +
+            "pgpgin 198292\n" +
+            "pgpgout 7674\n" +
+            "pswpin 0\n" +
+            "pswpout 0\n" +
+            "pgalloc_dma 0\n" +
+            "pgalloc_dma32 0\n" +
+            "pgalloc_normal 44669136\n" +
+            "pgfree 46674674\n" +
+            "pgactivate 1085674\n" +
+            "pgdeactivate 340776\n" +
+            "pglazyfree 139872\n" +
+            "pgfault 37291463\n" +
+            "pgmajfault 6854\n" +
+            "pgrefill 480634\n"
+        )
+
+        // /proc/sys/kernel/cap_last_cap
+        File(procDir, "cap_last_cap").writeText("40\n")
+
+        // /proc/sys/fs/inotify/max_user_watches
+        File(procDir, "max_user_watches").writeText("4096\n")
+
+        // /proc/sys/crypto/fips_enabled 鈥?libgcrypt reads this on startup;
+        // missing/unreadable on Android causes apt HTTP method to SIGABRT
+        File(procDir, "fips_enabled").writeText("0\n")
+
+        // Empty file for /sys/fs/selinux bind
+        File(sysDir, "empty").writeText("")
+    }
+
+    private fun checkNodeInProot(): Boolean {
+        return try {
+            val pm = ProcessManager(filesDir, nativeLibDir)
+            val output = pm.runInProotSync("node --version")
+            output.trim().startsWith("v")
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun checkOpenClawInProot(): Boolean {
+        return try {
+            val pm = ProcessManager(filesDir, nativeLibDir)
+            val output = pm.runInProotSync("command -v openclaw")
+            output.trim().isNotEmpty()
+        } catch (e: Exception) {
+            false
+        }
+    }
+}

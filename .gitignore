@@ -1,0 +1,38 @@
+node_modules/
+*.log
+.DS_Store
+.env
+.env.local
+*.tgz
+coverage/
+.nyc_output/
+.tmp/
+
+
+# Android signing
+flutter_app/android/key.properties
+*.jks
+*.keystore
+
+# Flutter local/cache files
+flutter_app/.flutter-plugins-dependencies
+flutter_app/.dart_tool/
+flutter_app/pubspec.lock
+flutter_app/build/
+flutter_app/android/.gradle/
+flutter_app/android/local.properties
+flutter_app/android/gradlew
+flutter_app/android/gradlew.bat
+flutter_app/android/gradle/wrapper/gradle-wrapper.jar
+flutter_app/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+.gradle-user/
+
+# Local release output
+release/*
+!release/*/
+release/*/*
+!release/*/Release.zh.md
+.codex-project-rules.md
+
+# Local exported OpenClaw configs with real API keys / tokens
+openclaw-config/openclaw-config-app-*.json
