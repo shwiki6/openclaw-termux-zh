@@ -31,9 +31,9 @@ jobs:
   build:
     name: Build APK & AAB
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     outputs:
-      version: ${{ steps.apks.outputs.version }}
+      version: ${{ steps.collect.outputs.version }}
 
     steps:
       - name: Checkout
@@ -51,17 +51,41 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Install Android SDK packages
-        run: |
-          set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
-
-      - name: Install build tools
+      - name: Install host build tools
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends binutils curl xz-utils zstd
+          sudo apt-get install -y --no-install-recommends binutils curl unzip xz-utils zstd
+
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=${SDK_ROOT}" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=${SDK_ROOT}" >> "$GITHUB_ENV"
+
+          SDKMANAGER="${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "${SDK_ROOT}/cmdline-tools" -path '*/bin/sdkmanager' -type f 2>/dev/null | sort -V | tail -n 1 || true)"
+          fi
+
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager was not found under ${SDK_ROOT}/cmdline-tools"
+            find "$SDK_ROOT" -maxdepth 4 -type f -name sdkmanager 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358"
+
+          test -f "${SDK_ROOT}/platforms/android-36/android.jar"
+          test -d "${SDK_ROOT}/ndk/28.2.13676358"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -150,6 +174,7 @@ jobs:
 
       - name: Verify PRoot binaries
         run: |
+          set -euo pipefail
           echo "Checking jniLibs contents..."
           for abi in arm64-v8a armeabi-v7a x86_64; do
             for lib in libproot.so libprootloader.so; do
@@ -176,7 +201,7 @@ jobs:
         run: flutter analyze --no-fatal-infos
         continue-on-error: true
 
-      - name: Build fat APK (all ABIs)
+      - name: Build fat APK
         working-directory: flutter_app
         run: flutter build apk --release
 
@@ -184,23 +209,21 @@ jobs:
         working-directory: flutter_app
         run: flutter build apk --release --split-per-abi
 
-      - name: Build AAB (App Bundle)
+      - name: Build AAB
         working-directory: flutter_app
         run: flutter build appbundle --release
 
-      - name: Rename and collect artifacts
-        id: apks
+      - name: Collect artifacts
+        id: collect
         run: |
-          VERSION=$(grep '^version:' flutter_app/pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+          set -euo pipefail
+          VERSION="$(awk '/^version:/ {print $2; exit}' flutter_app/pubspec.yaml | cut -d'+' -f1)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
           mkdir -p artifacts
 
-          # Fat APK
           cp flutter_app/build/app/outputs/flutter-apk/app-release.apk \
-             "artifacts/OpenClaw-v${VERSION}-universal.apk"
+            "artifacts/OpenClaw-v${VERSION}-universal.apk"
 
-          # Per-ABI APKs
           for abi in arm64-v8a armeabi-v7a x86_64; do
             SRC="flutter_app/build/app/outputs/flutter-apk/app-${abi}-release.apk"
             if [ -f "$SRC" ]; then
@@ -208,23 +231,19 @@ jobs:
             fi
           done
 
-          # AAB
           AAB="flutter_app/build/app/outputs/bundle/release/app-release.aab"
           if [ -f "$AAB" ]; then
             cp "$AAB" "artifacts/OpenClaw-v${VERSION}.aab"
           fi
 
-          # Summary
           echo "### Build Artifacts" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| File | Size |" >> "$GITHUB_STEP_SUMMARY"
           echo "|------|------|" >> "$GITHUB_STEP_SUMMARY"
           for f in artifacts/*; do
-            SIZE=$(du -h "$f" | cut -f1)
-            echo "| \`$(basename $f)\` | $SIZE |" >> "$GITHUB_STEP_SUMMARY"
+            SIZE="$(du -h "$f" | cut -f1)"
+            echo "| \`$(basename "$f")\` | $SIZE |" >> "$GITHUB_STEP_SUMMARY"
           done
-
-          echo "Built artifacts:"
           ls -lh artifacts/
 
       - name: Upload APK artifacts
@@ -246,7 +265,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const version = '${{ steps.apks.outputs.version }}';
+            const version = '${{ steps.collect.outputs.version }}';
             const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 
             const body = [
@@ -270,7 +289,6 @@ jobs:
               `*Built from ${process.env.GITHUB_SHA.substring(0, 7)} by [GitHub Actions](${runUrl})*`,
             ].join('\n');
 
-            // Find existing bot comment to update instead of spamming
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -323,7 +341,6 @@ jobs:
     if: >
       (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
       (github.event_name == 'workflow_dispatch' && inputs.publish_release)
-
     permissions:
       contents: write
 
@@ -346,10 +363,9 @@ jobs:
       - name: Get version
         id: version
         run: |
-          VERSION=$(grep '^version:' flutter_app/pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+          set -euo pipefail
+          VERSION="$(awk '/^version:/ {print $2; exit}' flutter_app/pubspec.yaml | cut -d'+' -f1)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-          # Check if this tag already exists
           if git ls-remote --tags origin "refs/tags/v${VERSION}" | grep -q .; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
