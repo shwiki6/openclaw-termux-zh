@@ -29,6 +29,14 @@
 - Bundled sample configs now point to a test-friendly OpenAI-compatible provider so new users can verify the flow quickly.
 - The local model page now explicitly warns that the current path is PRoot + llama.cpp + GGUF CPU, not Google AI Edge native GPU.
 
+## Current Development Branch Changes
+
+- The app brand has been changed to "小龙虾"; Android `applicationId`, `namespace`, and MethodChannel identifiers now use `com.openclaw.xlx`.
+- First-run setup now follows the npm `openclaw@latest` stable release by default, while filtering prerelease tags such as beta, rc, test, and preview from the selectable version list.
+- Runtime defaults in this branch target Ubuntu 24.04.3, Node.js 24.14.1 for arm64/x86_64, and Node.js 22.22.2 for armv7 compatibility.
+- After setup, users can write an Android-recommended config that pre-creates local gateway settings, a random token, workspace defaults, node capability allowlists, and Web console settings; API Base URL, API Key, and model selection remain in the AI Providers page.
+- Custom model providers now include an optional "Model Reasoning Strength" setting saved as `models.providers.<providerId>.models[0].thinking`, with `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `adaptive`, and `max` support.
+
 ## Download Artifacts
 
 | File | Target Device | Size | Download |

@@ -10,7 +10,7 @@ echo "=== OpenClaw APK Build ==="
 echo ""
 
 # Step 1: Fetch proot binaries if not present
-if [ ! -f "$FLUTTER_DIR/android/app/jniLibs/arm64-v8a/libproot.so" ]; then
+if [ ! -f "$FLUTTER_DIR/android/app/src/main/jniLibs/arm64-v8a/libproot.so" ]; then
     echo "[1/3] Fetching PRoot binaries..."
     bash "$SCRIPT_DIR/fetch-proot-binaries.sh"
 else

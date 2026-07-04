@@ -124,6 +124,75 @@ void main() {
       expect(customPresets.single.thinkingLevel, 'high');
     });
 
+    test('readConfig ignores non-string optional custom provider fields',
+        () async {
+      rootfsFiles[configPath] = jsonEncode(<String, dynamic>{
+        'agents': {
+          'defaults': {
+            'model': {
+              'primary': 'local-llama-cpp/qwen2-0.5b-local',
+            },
+          },
+        },
+        'models': {
+          'providers': {
+            'local-llama-cpp': {
+              'baseUrl': 'http://127.0.0.1:18080/v1',
+              'api': 42,
+              'apiKey': false,
+              'alias': ['bad alias'],
+              'models': [
+                {
+                  'id': 'qwen2-0.5b-local',
+                  'thinking': true,
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      rootfsFiles[metadataPath] = jsonEncode(<String, dynamic>{
+        'presets': {
+          'local-llama-cpp': {
+            'alias': {'invalid': true},
+          },
+        },
+      });
+
+      final readConfig = await ProviderConfigService.readConfig();
+      final customPresets =
+          readConfig['customPresets'] as List<CustomProviderPreset>;
+
+      expect(customPresets, hasLength(1));
+      expect(customPresets.single.providerId, 'local-llama-cpp');
+      expect(customPresets.single.apiKey, '');
+      expect(customPresets.single.alias, '');
+      expect(customPresets.single.thinkingLevel, isNull);
+      expect(
+        customPresets.single.compatibility,
+        CustomProviderCompatibility.autoDetect,
+      );
+
+      final savedPreset = await ProviderConfigService.saveCustomProviderPreset(
+        compatibility: CustomProviderCompatibility.openaiChatCompletions,
+        apiKey: '',
+        baseUrl: 'http://127.0.0.1:18080',
+        modelId: 'qwen2-0.5b-local',
+        providerId: 'local-llama-cpp',
+        alias: 'Recovered alias',
+      );
+      final savedMetadata =
+          jsonDecode(rootfsFiles[metadataPath]!) as Map<String, dynamic>;
+      final savedPresets = savedMetadata['presets'] as Map<String, dynamic>;
+
+      expect(savedPreset.alias, 'Recovered alias');
+      expect(
+        (savedPresets['local-llama-cpp'] as Map<String, dynamic>)['alias'],
+        'Recovered alias',
+      );
+    });
+
     test('migrateCustomProviderConfigIfNeeded removes legacy alias from config',
         () async {
       rootfsFiles[configPath] = jsonEncode(<String, dynamic>{

@@ -25,6 +25,14 @@ class ProviderConfigService {
   static bool _isNonEmptyString(dynamic value) =>
       value is String && value.trim().isNotEmpty;
 
+  static String? _stringOrNull(dynamic value) {
+    return value is String ? value : null;
+  }
+
+  static String _trimmedString(dynamic value) {
+    return value is String ? value.trim() : '';
+  }
+
   static Map<String, dynamic> _asStringKeyedMap(dynamic value) {
     if (value is Map<String, dynamic>) {
       return value;
@@ -198,7 +206,7 @@ class ProviderConfigService {
     final presets = _ensureCustomPresetMetadataEntries(metadata);
     final trimmedAlias = alias.trim();
     final existingEntry = _asStringKeyedMap(presets[providerId]);
-    final currentAlias = (existingEntry['alias'] as String? ?? '').trim();
+    final currentAlias = _trimmedString(existingEntry['alias']);
 
     if (trimmedAlias.isEmpty) {
       if (existingEntry.isEmpty) {
@@ -359,8 +367,11 @@ class ProviderConfigService {
     return null;
   }
 
-  static String? _normalizeThinkingLevel(String? value) {
-    final normalized = value?.trim().toLowerCase() ?? '';
+  static String? _normalizeThinkingLevel(dynamic value) {
+    if (value is! String) {
+      return null;
+    }
+    final normalized = value.trim().toLowerCase();
     if (normalized.isEmpty) {
       return null;
     }
@@ -375,7 +386,7 @@ class ProviderConfigService {
     if (models is! List || models.isEmpty) return null;
     final first = models.first;
     if (first is! Map) return null;
-    return _normalizeThinkingLevel(first['thinking'] as String?);
+    return _normalizeThinkingLevel(first['thinking']);
   }
 
   static String normalizeCustomBaseUrl(
@@ -505,7 +516,7 @@ class ProviderConfigService {
 
     final providerConfig = _asStringKeyedMap(rawProviderConfig);
     final modelId = _extractModelId(providerConfig);
-    final baseUrl = providerConfig['baseUrl'] as String?;
+    final baseUrl = _stringOrNull(providerConfig['baseUrl']);
     if (!_isNonEmptyString(modelId) || !_isNonEmptyString(baseUrl)) {
       return null;
     }
@@ -516,9 +527,9 @@ class ProviderConfigService {
         : _asStringKeyedMap(allowList[modelRef]);
     final presetMetadataEntry =
         _customPresetMetadataEntry(presetMetadata, providerId);
-    final alias = (presetMetadataEntry['alias'] as String? ??
-            providerConfig['alias'] as String? ??
-            allowListEntry['alias'] as String? ??
+    final alias = (_stringOrNull(presetMetadataEntry['alias']) ??
+            _stringOrNull(providerConfig['alias']) ??
+            _stringOrNull(allowListEntry['alias']) ??
             '')
         .trim();
 
@@ -526,10 +537,10 @@ class ProviderConfigService {
       providerId: providerId,
       modelId: modelId,
       baseUrl: baseUrl!.trim(),
-      apiKey: (providerConfig['apiKey'] as String? ?? '').trim(),
+      apiKey: _trimmedString(providerConfig['apiKey']),
       alias: alias,
       compatibility: CustomProviderCompatibility.resolveSavedCompatibility(
-        apiValue: providerConfig['api'] as String?,
+        apiValue: _stringOrNull(providerConfig['api']),
         baseUrl: baseUrl,
       ),
       thinkingLevel: _extractThinkingLevel(providerConfig),
