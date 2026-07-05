@@ -34,6 +34,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _batteryOptimized = true;
   String _arch = '';
   String _prootPath = '';
+  String _appVersionName = AppConstants.version;
   Map<String, dynamic> _status = {};
   bool _loading = true;
   bool _goInstalled = false;
@@ -63,6 +64,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final arch = await NativeBridge.getArch();
       final prootPath = await NativeBridge.getProotPath();
       final status = await NativeBridge.getBootstrapStatus();
+      final appPackageInfo = await NativeBridge.getAppPackageInfo();
       final batteryOptimized = await NativeBridge.isBatteryOptimized();
       final persistentGatewayLogs =
           await NativeBridge.isGatewayLogPersistenceEnabled();
@@ -84,6 +86,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _storageGranted = storageGranted;
         _arch = arch;
         _prootPath = prootPath;
+        _appVersionName =
+            appPackageInfo['versionName']?.toString().trim().isNotEmpty == true
+                ? appPackageInfo['versionName'].toString()
+                : AppConstants.version;
         _status = status;
         _goInstalled = goInstalled;
         _brewInstalled = brewInstalled;
@@ -391,7 +397,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: Text(l10n.t('settingsOpenClaw')),
                   subtitle: Text(
                     l10n.t('settingsAboutSubtitle',
-                        {'version': AppConstants.version}),
+                        {'version': _appVersionName}),
                   ),
                   leading: const Icon(Icons.info_outline),
                   isThreeLine: true,

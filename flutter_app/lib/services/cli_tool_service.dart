@@ -123,29 +123,32 @@ install_claude_package() {
   target_dir="/opt/openclaw-cli/claude"
   staging_dir="$target_dir.tmp"
   previous_dir="$target_dir.prev"
+  pack_dir="$staging_dir/.npm-pack"
 
   rm -rf "$staging_dir" "$previous_dir"
-  mkdir -p "$staging_dir"
+  mkdir -p "$staging_dir" "$pack_dir"
 
+  echo ">>> Installing Claude Code main package..."
   npm install \
     --prefix "$staging_dir" \
     --force \
-    --include=optional \
-    --os=linux \
-    --cpu=arm64 \
-    --libc=glibc \
-    @anthropic-ai/claude-code@latest \
-    @anthropic-ai/claude-code-linux-arm64@latest
+    --ignore-scripts \
+    --omit=optional \
+    @anthropic-ai/claude-code@latest
 
-  if [ ! -x "$staging_dir/node_modules/@anthropic-ai/claude-code-linux-arm64/claude" ]; then
-    npm install \
-      --prefix "$staging_dir" \
-      --force \
-      --os=linux \
-      --cpu=arm64 \
-      --libc=glibc \
-      @anthropic-ai/claude-code-linux-arm64@latest
-  fi
+  claude_version="$(node -p "require('$staging_dir/node_modules/@anthropic-ai/claude-code/package.json').version")"
+  native_package="@anthropic-ai/claude-code-linux-arm64@$claude_version"
+  native_dir="$staging_dir/node_modules/@anthropic-ai/claude-code-linux-arm64"
+  mkdir -p "$native_dir"
+
+  echo ">>> Installing Claude Code linux arm64 runtime $claude_version..."
+  (
+    cd "$pack_dir"
+    npm pack --force "$native_package" > pack-name.txt
+  )
+  tar -xzf "$pack_dir/$(cat "$pack_dir/pack-name.txt")" \
+    -C "$native_dir" \
+    --strip-components=1
 
   native_binary="$(find "$staging_dir/node_modules/@anthropic-ai" -path '*/claude' -type f 2>/dev/null | head -n 1 || true)"
   if [ -z "$native_binary" ]; then
@@ -154,6 +157,7 @@ install_claude_package() {
     exit 127
   fi
   chmod 0755 "$native_binary" || true
+  echo ">>> Claude Code native binary: $native_binary"
 
   if [ -d "$target_dir" ]; then
     mv "$target_dir" "$previous_dir"

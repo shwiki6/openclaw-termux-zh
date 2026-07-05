@@ -28,6 +28,11 @@ class NativeBridge {
     return Map<String, dynamic>.from(result);
   }
 
+  static Future<Map<String, dynamic>> getAppPackageInfo() async {
+    final result = await _channel.invokeMethod('getAppPackageInfo');
+    return Map<String, dynamic>.from(result);
+  }
+
   static Future<bool> isBootstrapComplete() async {
     return await _channel.invokeMethod('isBootstrapComplete');
   }

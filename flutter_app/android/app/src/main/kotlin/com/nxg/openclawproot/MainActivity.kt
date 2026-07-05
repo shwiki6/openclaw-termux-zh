@@ -102,6 +102,9 @@ class MainActivity : FlutterActivity() {
                 "getWebViewPackageInfo" -> {
                     result.success(getWebViewPackageInfo())
                 }
+                "getAppPackageInfo" -> {
+                    result.success(getAppPackageInfo())
+                }
                 "isBootstrapComplete" -> {
                     result.success(bootstrapManager.isBootstrapComplete())
                 }
@@ -943,6 +946,37 @@ class MainActivity : FlutterActivity() {
                 "packageName" to null,
                 "versionName" to null,
                 "majorVersion" to null
+            )
+        }
+    }
+
+    private fun getAppPackageInfo(): Map<String, Any?> {
+        return try {
+            val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(0)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0)
+            }
+            val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.versionCode.toLong()
+            }
+            hashMapOf(
+                "packageName" to packageInfo.packageName,
+                "versionName" to packageInfo.versionName,
+                "versionCode" to versionCode
+            )
+        } catch (_: Exception) {
+            hashMapOf(
+                "packageName" to packageName,
+                "versionName" to null,
+                "versionCode" to null
             )
         }
     }
