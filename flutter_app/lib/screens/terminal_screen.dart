@@ -136,7 +136,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   String _getAllText() {
     final sb = StringBuffer();
-    for (final line in _session.terminal.buffer.lines) {
+    for (int i = 0; i < _session.terminal.buffer.lines.length; i++) {
+      final line = _session.terminal.buffer.lines[i];
       sb.writeln(line.getText().trimRight());
     }
     return sb.toString().trimRight();
