@@ -103,10 +103,9 @@ jobs:
           FLUTTER_SDK="$(dirname "$(dirname "$(command -v flutter)")")"
           APP_VERSION="$(awk '/^version:/ {print $2; exit}' pubspec.yaml)"
           VERSION_NAME="${APP_VERSION%%+*}"
-          VERSION_CODE="${APP_VERSION##*+}"
-          if [ "$VERSION_CODE" = "$VERSION_NAME" ]; then
-            VERSION_CODE="${GITHUB_RUN_NUMBER}"
-          fi
+          VERSION_CODE="$((100000 + GITHUB_RUN_NUMBER))"
+          echo "APP_VERSION_NAME=${VERSION_NAME}" >> "$GITHUB_ENV"
+          echo "APP_VERSION_CODE=${VERSION_CODE}" >> "$GITHUB_ENV"
 
           {
             echo "sdk.dir=${ANDROID_HOME}"
@@ -207,7 +206,13 @@ jobs:
 
       - name: Build arm64-v8a APK
         working-directory: flutter_app
-        run: flutter build apk --release --split-per-abi --target-platform android-arm64
+        run: |
+          set -euo pipefail
+          flutter build apk --release \
+            --split-per-abi \
+            --target-platform android-arm64 \
+            --build-name "$APP_VERSION_NAME" \
+            --build-number "$APP_VERSION_CODE"
 
       - name: Verify APK native PRoot binaries
         run: |
@@ -229,14 +234,18 @@ jobs:
         id: collect
         run: |
           set -euo pipefail
-          VERSION="$(awk '/^version:/ {print $2; exit}' flutter_app/pubspec.yaml | cut -d'+' -f1)"
+          VERSION="${APP_VERSION_NAME:-$(awk '/^version:/ {print $2; exit}' flutter_app/pubspec.yaml | cut -d'+' -f1)}"
+          VERSION_CODE="${APP_VERSION_CODE:-0}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
           mkdir -p artifacts
 
           cp flutter_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-            "artifacts/OpenClaw-v${VERSION}-arm64-v8a.apk"
+            "artifacts/OpenClaw-v${VERSION}+${VERSION_CODE}-arm64-v8a.apk"
 
           echo "### Build Artifacts" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Version: v${VERSION}+${VERSION_CODE}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| File | Size |" >> "$GITHUB_STEP_SUMMARY"
           echo "|------|------|" >> "$GITHUB_STEP_SUMMARY"
@@ -259,18 +268,19 @@ jobs:
         with:
           script: |
             const version = '${{ steps.collect.outputs.version }}';
+            const versionCode = '${{ steps.collect.outputs.version_code }}';
             const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 
             const body = [
               `## Build Successful`,
               ``,
-              `**Version:** \`v${version}\``,
+              `**Version:** \`v${version}+${versionCode}\``,
               ``,
               `### Download APK`,
               ``,
               `| Architecture | Download |`,
               `|---|---|`,
-              `| arm64-v8a | [OpenClaw-v${version}-arm64-v8a.apk](${runUrl}#artifacts) |`,
+              `| arm64-v8a | [OpenClaw-v${version}+${versionCode}-arm64-v8a.apk](${runUrl}#artifacts) |`,
               ``,
               `> Download from [**Actions Artifacts**](${runUrl}#artifacts)`,
               ``,
