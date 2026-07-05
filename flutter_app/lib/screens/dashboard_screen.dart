@@ -13,6 +13,7 @@ import '../services/update_service.dart';
 import '../widgets/gateway_controls.dart';
 import '../widgets/status_card.dart';
 import 'backup_manager_screen.dart';
+import 'cli_tools_screen.dart';
 import 'command_shortcuts_screen.dart';
 import 'config_editor_screen.dart';
 import 'configure_screen.dart';
@@ -24,7 +25,6 @@ import 'packages_screen.dart';
 import 'providers_screen.dart';
 import 'settings_screen.dart';
 import 'ssh_screen.dart';
-import 'terminal_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -324,7 +324,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               subtitle: l10n.t('dashboardTerminalSubtitle'),
               icon: Icons.terminal,
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => _openScreen(const TerminalScreen()),
+              onTap: () => _openScreen(const CliToolsScreen()),
             ),
             StatusCard(
               title: l10n.t('dashboardConfigureTitle'),

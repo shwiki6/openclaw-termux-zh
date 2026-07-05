@@ -1,29 +1,32 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
-import 'package:flutter_pty/flutter_pty.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../services/native_bridge.dart';
+import '../services/persistent_terminal_session.dart';
 import '../services/screenshot_service.dart';
-import '../services/terminal_output_buffer.dart';
-import '../services/terminal_service.dart';
 import '../widgets/terminal_toolbar.dart';
 
 class TerminalScreen extends StatefulWidget {
-  const TerminalScreen({super.key});
+  final String sessionId;
+  final String title;
+  final String? initialCommand;
+  final bool restartOnOpen;
+
+  const TerminalScreen({
+    super.key,
+    this.sessionId = 'shell',
+    this.title = 'Terminal',
+    this.initialCommand,
+    this.restartOnOpen = false,
+  });
 
   @override
   State<TerminalScreen> createState() => _TerminalScreenState();
 }
 
 class _TerminalScreenState extends State<TerminalScreen> {
-  late final Terminal _terminal;
+  late final PersistentTerminalSession _session;
   late final TerminalController _controller;
-  late final TerminalOutputBuffer _outputBuffer;
-  Pty? _pty;
-  bool _loading = true;
-  String? _error;
   final _ctrlNotifier = ValueNotifier<bool>(false);
   final _altNotifier = ValueNotifier<bool>(false);
   final _screenshotKey = GlobalKey();
@@ -47,89 +50,64 @@ class _TerminalScreenState extends State<TerminalScreen> {
   @override
   void initState() {
     super.initState();
-    _terminal = Terminal(maxLines: terminalScrollbackLines);
-    _outputBuffer = TerminalOutputBuffer(_terminal);
+    _session = PersistentTerminalSessions.getOrCreate(
+      id: widget.sessionId,
+      title: widget.title,
+      initialCommand: widget.initialCommand,
+    );
+    _session.addListener(_onSessionChanged);
     _controller = TerminalController();
-    NativeBridge.startTerminalService();
+    _session.terminal.onOutput = _handleTerminalInput;
+    _session.terminal.onResize = (w, h, pw, ph) {
+      _session.resize(w, h);
+    };
     // Defer PTY start until after the first frame so TerminalView has been
     // laid out and _terminal.viewWidth/viewHeight reflect real screen
     // dimensions instead of the 80×24 default.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _startPty();
+      _startPty(restart: widget.restartOnOpen);
     });
   }
 
-  Future<void> _startPty() async {
-    _outputBuffer.flush();
-    _pty?.kill();
-    _pty = null;
-    try {
-      final config = await TerminalService.getProotShellConfig();
-      final args = TerminalService.buildProotArgs(
-        config,
-        columns: _terminal.viewWidth,
-        rows: _terminal.viewHeight,
-      );
-
-      _pty = Pty.start(
-        config['executable']!,
-        arguments: args,
-        environment: TerminalService.buildHostEnv(config),
-        columns: _terminal.viewWidth,
-        rows: _terminal.viewHeight,
-      );
-
-      _pty!.output.cast<List<int>>().listen((data) {
-        final text = utf8.decode(data, allowMalformed: true);
-        _outputBuffer.write(text);
-      });
-
-      _pty!.exitCode.then((code) {
-        _outputBuffer.write('\r\n[Process exited with code $code]\r\n');
-        _outputBuffer.flush();
-      });
-
-      _terminal.onOutput = (data) {
-        // Intercept keyboard input when CTRL/ALT toolbar modifiers are active
-        if (_ctrlNotifier.value && data.length == 1) {
-          final code = data.toLowerCase().codeUnitAt(0);
-          if (code >= 97 && code <= 122) {
-            // Ctrl+a-z → bytes 1-26
-            _pty?.write(Uint8List.fromList([code - 96]));
-            _ctrlNotifier.value = false;
-            return;
-          }
-        }
-        if (_altNotifier.value && data.isNotEmpty) {
-          // Alt+key → ESC + key
-          _pty?.write(utf8.encode('\x1b$data'));
-          _altNotifier.value = false;
-          return;
-        }
-        _pty?.write(utf8.encode(data));
-      };
-
-      _terminal.onResize = (w, h, pw, ph) {
-        _pty?.resize(h, w);
-      };
-
-      setState(() => _loading = false);
-    } catch (e) {
-      setState(() {
-        _loading = false;
-        _error = 'Failed to start terminal: $e';
-      });
+  void _onSessionChanged() {
+    if (mounted) {
+      setState(() {});
     }
+  }
+
+  Future<void> _startPty({bool restart = false}) {
+    return _session.start(
+      columns: _session.terminal.viewWidth,
+      rows: _session.terminal.viewHeight,
+      restart: restart,
+    );
+  }
+
+  void _handleTerminalInput(String data) {
+    // Intercept keyboard input when CTRL/ALT toolbar modifiers are active.
+    if (_ctrlNotifier.value && data.length == 1) {
+      final code = data.toLowerCase().codeUnitAt(0);
+      if (code >= 97 && code <= 122) {
+        _session.writeBytes([code - 96]);
+        _ctrlNotifier.value = false;
+        return;
+      }
+    }
+    if (_altNotifier.value && data.isNotEmpty) {
+      _session.writeInput('\x1b$data');
+      _altNotifier.value = false;
+      return;
+    }
+    _session.writeInput(data);
   }
 
   @override
   void dispose() {
+    _session.terminal.onOutput = _session.writeInput;
+    _session.removeListener(_onSessionChanged);
     _ctrlNotifier.dispose();
     _altNotifier.dispose();
     _controller.dispose();
-    _outputBuffer.dispose();
-    _pty?.kill();
-    NativeBridge.stopTerminalService();
     super.dispose();
   }
 
@@ -140,8 +118,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
     final range = selection.normalized;
     final sb = StringBuffer();
     for (int y = range.begin.y; y <= range.end.y; y++) {
-      if (y >= _terminal.buffer.lines.length) break;
-      final line = _terminal.buffer.lines[y];
+      if (y >= _session.terminal.buffer.lines.length) break;
+      final line = _session.terminal.buffer.lines[y];
       final from = (y == range.begin.y) ? range.begin.x : 0;
       final to = (y == range.end.y) ? range.end.x : null;
       sb.write(line.getText(from, to));
@@ -230,7 +208,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
   Future<void> _paste() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     if (data?.text != null && data!.text!.isNotEmpty) {
-      _pty?.write(utf8.encode(data.text!));
+      _session.writeInput(data.text!);
     }
   }
 
@@ -249,7 +227,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
   /// Detect URLs in terminal at tap position. Joins adjacent lines
   /// and strips box-drawing chars to handle wrapped URLs.
   void _handleTap(TapUpDetails details, CellOffset offset) {
-    final totalLines = _terminal.buffer.lines.length;
+    final totalLines = _session.terminal.buffer.lines.length;
     final startRow = (offset.y - 2).clamp(0, totalLines - 1);
     final endRow = (offset.y + 2).clamp(0, totalLines - 1);
 
@@ -265,7 +243,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   String _getLineText(int row) {
     try {
-      final line = _terminal.buffer.lines[row];
+      final line = _session.terminal.buffer.lines[row];
       final sb = StringBuffer();
       for (int i = 0; i < line.length; i++) {
         final char = line.getCodePoint(i);
@@ -323,7 +301,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Terminal'),
+        title: Text(widget.title),
         actions: [
           IconButton(
             icon: const Icon(Icons.camera_alt_outlined),
@@ -349,12 +327,17 @@ class _TerminalScreenState extends State<TerminalScreen> {
             icon: const Icon(Icons.refresh),
             tooltip: 'Restart',
             onPressed: () {
-              _pty?.kill();
-              setState(() {
-                _loading = true;
-                _error = null;
-              });
-              _startPty();
+              _startPty(restart: true);
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Close session',
+            onPressed: () async {
+              await _session.close();
+              if (context.mounted) {
+                Navigator.of(context).pop(true);
+              }
             },
           ),
         ],
@@ -364,7 +347,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
   }
 
   Widget _buildBody() {
-    if (_loading) {
+    if (_session.loading) {
       return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -377,7 +360,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
       );
     }
 
-    if (_error != null) {
+    if (_session.error != null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -391,18 +374,14 @@ class _TerminalScreenState extends State<TerminalScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                _error!,
+                _session.error!,
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
                 onPressed: () {
-                  setState(() {
-                    _loading = true;
-                    _error = null;
-                  });
-                  _startPty();
+                  _startPty(restart: true);
                 },
                 icon: const Icon(Icons.refresh),
                 label: const Text('Retry'),
@@ -419,7 +398,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
           child: RepaintBoundary(
             key: _screenshotKey,
             child: TerminalView(
-              _terminal,
+              _session.terminal,
               controller: _controller,
               textStyle: const TerminalStyle(
                 fontSize: 11,
@@ -432,7 +411,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
           ),
         ),
         TerminalToolbar(
-          pty: _pty,
+          pty: _session.pty,
           ctrlNotifier: _ctrlNotifier,
           altNotifier: _altNotifier,
         ),

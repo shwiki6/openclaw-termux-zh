@@ -28,6 +28,7 @@ flutter_app/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistra
 .gradle-user/
 
 # Local release output
+dist/
 release/*
 !release/*/
 release/*/*

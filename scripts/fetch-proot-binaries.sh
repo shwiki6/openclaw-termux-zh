@@ -1,7 +1,7 @@
 #!/bin/bash
 # Fetch pre-compiled PRoot binaries from Termux packages for Android.
 # Extracts proot, libtalloc, libandroid-shmem, and loader from Termux .deb packages.
-# Places them in jniLibs/<abi>/lib*.so so Android auto-extracts
+# Places them in jniLibs/arm64-v8a/lib*.so so Android auto-extracts
 # them to nativeLibraryDir with execute permission (bypasses W^X).
 #
 # At runtime, BootstrapManager copies libtalloc.so -> libtalloc.so.2
@@ -102,15 +102,11 @@ fetch_for_abi() {
         chmod 755 "$out_dir/libprootloader.so"
     fi
 
-    # Copy loader32 (for 32-bit compat). Termux 32-bit packages only ship
-    # "loader"; for armeabi-v7a that file is already the 32-bit loader.
+    # Keep loader32 because the PRoot runtime expects the companion loader.
     local loader32
     loader32=$(find "$proot_dir" -name "loader32" -path "*/proot/*" -type f | head -1)
     if [ -n "$loader32" ]; then
         cp "$loader32" "$out_dir/libprootloader32.so"
-        chmod 755 "$out_dir/libprootloader32.so"
-    elif [ "$jni_abi" = "armeabi-v7a" ] && [ -n "$loader" ]; then
-        cp "$loader" "$out_dir/libprootloader32.so"
         chmod 755 "$out_dir/libprootloader32.so"
     fi
 
@@ -158,7 +154,7 @@ echo ""
 SUCCESS=0
 FAILED=0
 
-for entry in "arm64-v8a:aarch64" "armeabi-v7a:arm" "x86_64:x86_64"; do
+for entry in "arm64-v8a:aarch64"; do
     IFS=':' read -r abi deb_arch <<< "$entry"
 
     if fetch_for_abi "$abi" "$deb_arch"; then
@@ -171,7 +167,7 @@ for entry in "arm64-v8a:aarch64" "armeabi-v7a:arm" "x86_64:x86_64"; do
 done
 
 echo "=== Summary ==="
-echo "Success: $SUCCESS / 3"
+echo "Success: $SUCCESS / 1"
 if [ "$FAILED" -gt 0 ]; then
     echo "Failed: $FAILED"
 fi

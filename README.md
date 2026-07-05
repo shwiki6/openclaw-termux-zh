@@ -182,27 +182,6 @@ flutter build apk --release
 python scripts/build_release.py --version 2.0.2 --build-number 77
 ```
 
-### 方式三：云端构建
-
-本地 Android / Flutter 环境不完整时，直接使用 GitHub Actions 构建：
-
-1. 把代码推送到 GitHub 仓库。
-2. 打开仓库的 `Actions` 页面。
-3. 选择 `Build OpenClaw Apps` 工作流。
-4. 点击 `Run workflow` 手动触发，或推送 `flutter_app/**`、`scripts/fetch-proot-binaries.sh`、`scripts/build-apk.sh` 相关改动自动触发。
-5. 构建完成后，在本次 workflow run 的 `Artifacts` 中下载 `openclaw-apks` 或 `openclaw-aab`。
-
-云端 workflow 会自动安装 Java 17、Flutter stable、Android API 36、NDK `28.2.13676358`，并生成 `flutter_app/android/local.properties` 和 Gradle wrapper；本地不需要预先配置这些文件。
-
-如需生成正式签名包，在仓库 `Settings -> Secrets and variables -> Actions` 添加以下 secrets：
-
-- `KEYSTORE_BASE64`：release keystore 的 base64 内容。
-- `KEYSTORE_PASSWORD`：keystore 密码。
-- `KEY_ALIAS`：签名 alias。
-- `KEY_PASSWORD`：alias 密码。
-
-未配置签名 secrets 时，云端仍会产出可安装测试包，但会使用 debug signing fallback。
-
 ## 交流反馈
 
 如需交流使用经验、排查问题或反馈建议，欢迎加入 `OpenClaw-zh` 开源项目交流群。

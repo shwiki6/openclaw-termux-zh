@@ -7,6 +7,7 @@ on:
       - 'flutter_app/**'
       - 'scripts/fetch-proot-binaries.sh'
       - 'scripts/build-apk.sh'
+      - 'scripts/build_release.py'
       - '.github/workflows/flutter-build.yml'
   pull_request:
     branches: [main]
@@ -14,6 +15,7 @@ on:
       - 'flutter_app/**'
       - 'scripts/fetch-proot-binaries.sh'
       - 'scripts/build-apk.sh'
+      - 'scripts/build_release.py'
       - '.github/workflows/flutter-build.yml'
   workflow_dispatch:
     inputs:
@@ -29,7 +31,7 @@ permissions:
 
 jobs:
   build:
-    name: Build APK & AAB
+    name: Build arm64-v8a APK
     runs-on: ubuntu-latest
     timeout-minutes: 40
     outputs:
@@ -178,7 +180,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Checking jniLibs contents..."
-          for abi in arm64-v8a armeabi-v7a x86_64; do
+          for abi in arm64-v8a; do
             for lib in libproot.so libprootloader.so libprootloader32.so libtalloc.so libandroid-shmem.so; do
               FILE="flutter_app/android/app/src/main/jniLibs/${abi}/${lib}"
               if [ ! -f "$FILE" ]; then
@@ -203,17 +205,9 @@ jobs:
         run: flutter analyze --no-fatal-infos
         continue-on-error: true
 
-      - name: Build fat APK
+      - name: Build arm64-v8a APK
         working-directory: flutter_app
-        run: flutter build apk --release
-
-      - name: Build per-ABI APKs
-        working-directory: flutter_app
-        run: flutter build apk --release --split-per-abi
-
-      - name: Build AAB
-        working-directory: flutter_app
-        run: flutter build appbundle --release
+        run: flutter build apk --release --split-per-abi --target-platform android-arm64
 
       - name: Verify APK native PRoot binaries
         run: |
@@ -229,12 +223,7 @@ jobs:
             done
           }
 
-          check_apk flutter_app/build/app/outputs/flutter-apk/app-release.apk arm64-v8a
-          check_apk flutter_app/build/app/outputs/flutter-apk/app-release.apk armeabi-v7a
-          check_apk flutter_app/build/app/outputs/flutter-apk/app-release.apk x86_64
           check_apk flutter_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk arm64-v8a
-          check_apk flutter_app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk armeabi-v7a
-          check_apk flutter_app/build/app/outputs/flutter-apk/app-x86_64-release.apk x86_64
 
       - name: Collect artifacts
         id: collect
@@ -244,20 +233,8 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           mkdir -p artifacts
 
-          cp flutter_app/build/app/outputs/flutter-apk/app-release.apk \
-            "artifacts/OpenClaw-v${VERSION}-universal.apk"
-
-          for abi in arm64-v8a armeabi-v7a x86_64; do
-            SRC="flutter_app/build/app/outputs/flutter-apk/app-${abi}-release.apk"
-            if [ -f "$SRC" ]; then
-              cp "$SRC" "artifacts/OpenClaw-v${VERSION}-${abi}.apk"
-            fi
-          done
-
-          AAB="flutter_app/build/app/outputs/bundle/release/app-release.aab"
-          if [ -f "$AAB" ]; then
-            cp "$AAB" "artifacts/OpenClaw-v${VERSION}.aab"
-          fi
+          cp flutter_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            "artifacts/OpenClaw-v${VERSION}-arm64-v8a.apk"
 
           echo "### Build Artifacts" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -276,13 +253,6 @@ jobs:
           path: artifacts/*.apk
           retention-days: 30
 
-      - name: Upload AAB artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: openclaw-aab
-          path: artifacts/*.aab
-          retention-days: 30
-
       - name: Comment on PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -296,15 +266,11 @@ jobs:
               ``,
               `**Version:** \`v${version}\``,
               ``,
-              `### Download APKs`,
+              `### Download APK`,
               ``,
               `| Architecture | Download |`,
               `|---|---|`,
-              `| arm64-v8a (recommended) | [OpenClaw-v${version}-arm64-v8a.apk](${runUrl}#artifacts) |`,
-              `| armeabi-v7a (32-bit) | [OpenClaw-v${version}-armeabi-v7a.apk](${runUrl}#artifacts) |`,
-              `| x86_64 (emulator) | [OpenClaw-v${version}-x86_64.apk](${runUrl}#artifacts) |`,
-              `| Universal (all ABIs) | [OpenClaw-v${version}-universal.apk](${runUrl}#artifacts) |`,
-              `| App Bundle (Play Store) | [OpenClaw-v${version}.aab](${runUrl}#artifacts) |`,
+              `| arm64-v8a | [OpenClaw-v${version}-arm64-v8a.apk](${runUrl}#artifacts) |`,
               ``,
               `> Download from [**Actions Artifacts**](${runUrl}#artifacts)`,
               ``,
@@ -377,12 +343,6 @@ jobs:
           name: openclaw-apks
           path: artifacts
 
-      - name: Download AAB artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: openclaw-aab
-          path: artifacts
-
       - name: Get version
         id: version
         run: |
@@ -409,11 +369,7 @@ jobs:
             ### Downloads
             | File | Description |
             |------|-------------|
-            | `OpenClaw-v${{ steps.version.outputs.version }}-arm64-v8a.apk` | Most modern Android phones (recommended) |
-            | `OpenClaw-v${{ steps.version.outputs.version }}-armeabi-v7a.apk` | Older 32-bit ARM devices |
-            | `OpenClaw-v${{ steps.version.outputs.version }}-x86_64.apk` | Emulators / x86 devices |
-            | `OpenClaw-v${{ steps.version.outputs.version }}-universal.apk` | All architectures (larger) |
-            | `OpenClaw-v${{ steps.version.outputs.version }}.aab` | Android App Bundle (Play Store) |
+            | `OpenClaw-v${{ steps.version.outputs.version }}-arm64-v8a.apk` | arm64-v8a Android devices |
 
             ### First Run
             1. Install the APK
@@ -423,6 +379,7 @@ jobs:
 
             ### Requirements
             - Android 10+ (API 29)
+            - arm64-v8a device
             - ~500MB free storage for initial setup
             - Internet connection for first-time setup
           files: artifacts/*

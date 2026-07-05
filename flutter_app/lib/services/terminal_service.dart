@@ -162,6 +162,16 @@ class TerminalService {
       'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       'TERM=xterm-256color',
       'TMPDIR=/tmp',
+      'npm_config_cache=/tmp/npm-cache',
+      'npm_config_tmp=/tmp/npm-tmp',
+      'npm_config_registry=https://registry.npmmirror.com',
+      'npm_config_include=optional',
+      'npm_config_optional=true',
+      'npm_config_os=linux',
+      'npm_config_cpu=arm64',
+      'npm_config_arch=arm64',
+      'npm_config_platform=linux',
+      'npm_config_libc=glibc',
       'COLUMNS=$columns',
       'LINES=$rows',
       'NODE_OPTIONS=--require /root/.openclaw/bionic-bypass.js',
@@ -172,6 +182,21 @@ class TerminalService {
     ]);
 
     return args;
+  }
+
+  static List<String> replaceLoginShell(
+    List<String> args,
+    String command,
+  ) {
+    final cmdArgs = List<String>.from(args);
+    if (cmdArgs.length >= 2 &&
+        cmdArgs[cmdArgs.length - 2] == '/bin/bash' &&
+        cmdArgs.last == '-l') {
+      cmdArgs.removeLast();
+      cmdArgs.removeLast();
+    }
+    cmdArgs.addAll(['/bin/bash', '-lc', command]);
+    return cmdArgs;
   }
 
   static String _fullKernelRelease(String? arch) {

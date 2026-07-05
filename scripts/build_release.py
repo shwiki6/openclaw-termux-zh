@@ -20,11 +20,7 @@ RELEASE_ROOT = ROOT_DIR / "release"
 DOCS_DIR = ROOT_DIR / "docs"
 FETCH_PROOT_SCRIPT = ROOT_DIR / "scripts" / "fetch-proot-binaries.sh"
 
-ABI_ARTIFACTS = {
-    "arm64-v8a": "app-arm64-v8a-release.apk",
-    "armeabi-v7a": "app-armeabi-v7a-release.apk",
-    "x86_64": "app-x86_64-release.apk",
-}
+ARM64_APK = "app-arm64-v8a-release.apk"
 
 COMMAND_CACHE: dict[str, str] = {}
 
@@ -201,14 +197,6 @@ def need_fetch_proot() -> bool:
         jni_lib_root / "arm64-v8a" / "libprootloader.so",
         jni_lib_root / "arm64-v8a" / "libprootloader32.so",
         jni_lib_root / "arm64-v8a" / "libandroid-shmem.so",
-        jni_lib_root / "armeabi-v7a" / "libproot.so",
-        jni_lib_root / "armeabi-v7a" / "libprootloader.so",
-        jni_lib_root / "armeabi-v7a" / "libprootloader32.so",
-        jni_lib_root / "armeabi-v7a" / "libandroid-shmem.so",
-        jni_lib_root / "x86_64" / "libproot.so",
-        jni_lib_root / "x86_64" / "libprootloader.so",
-        jni_lib_root / "x86_64" / "libprootloader32.so",
-        jni_lib_root / "x86_64" / "libandroid-shmem.so",
     ]
     return any(not file.exists() for file in required_files)
 
@@ -236,26 +224,23 @@ def run_pub_get(skip_pub_get: bool) -> None:
     run_command(["flutter", "pub", "get"], cwd=FLUTTER_DIR)
 
 
-def build_artifacts(version: str, build_number: str, skip_split: bool, skip_aab: bool) -> None:
+def build_artifacts(version: str, build_number: str) -> None:
     build_args = ["--build-name", version, "--build-number", build_number]
 
-    print("[步骤 3/4] 构建通用 APK……")
-    run_command(["flutter", "build", "apk", "--release", *build_args], cwd=FLUTTER_DIR)
-
-    if not skip_split:
-        print("[步骤 3/4] 构建分 ABI APK……")
-        run_command(
-            ["flutter", "build", "apk", "--release", "--split-per-abi", *build_args],
-            cwd=FLUTTER_DIR,
-        )
-    else:
-        print("[跳过] 已按参数要求跳过分 ABI APK 构建。")
-
-    if not skip_aab:
-        print("[步骤 3/4] 构建 AAB……")
-        run_command(["flutter", "build", "appbundle", "--release", *build_args], cwd=FLUTTER_DIR)
-    else:
-        print("[跳过] 已按参数要求跳过 AAB 构建。")
+    print("[步骤 3/4] 构建 arm64-v8a APK……")
+    run_command(
+        [
+            "flutter",
+            "build",
+            "apk",
+            "--release",
+            "--split-per-abi",
+            "--target-platform",
+            "android-arm64",
+            *build_args,
+        ],
+        cwd=FLUTTER_DIR,
+    )
 
 
 
@@ -268,27 +253,15 @@ def copy_if_exists(source: Path, target: Path, copied_files: list[Path]) -> None
     copied_files.append(target)
 
 
-def collect_artifacts(version: str, output_dir: Path, skip_split: bool, skip_aab: bool) -> list[Path]:
+def collect_artifacts(version: str, output_dir: Path) -> list[Path]:
     copied_files: list[Path] = []
     output_dir.mkdir(parents=True, exist_ok=True)
 
     apk_root = FLUTTER_DIR / "build" / "app" / "outputs" / "flutter-apk"
-    bundle_root = FLUTTER_DIR / "build" / "app" / "outputs" / "bundle" / "release"
 
-    universal_source = apk_root / "app-release.apk"
-    universal_target = output_dir / f"OpenClaw-v{version}-universal.apk"
-    copy_if_exists(universal_source, universal_target, copied_files)
-
-    if not skip_split:
-        for abi, file_name in ABI_ARTIFACTS.items():
-            source = apk_root / file_name
-            target = output_dir / f"OpenClaw-v{version}-{abi}.apk"
-            copy_if_exists(source, target, copied_files)
-
-    if not skip_aab:
-        aab_source = bundle_root / "app-release.aab"
-        aab_target = output_dir / f"OpenClaw-v{version}.aab"
-        copy_if_exists(aab_source, aab_target, copied_files)
+    arm64_source = apk_root / ARM64_APK
+    arm64_target = output_dir / f"OpenClaw-v{version}-arm64-v8a.apk"
+    copy_if_exists(arm64_source, arm64_target, copied_files)
 
     doc_source = DOCS_DIR / f"release-v{version}.zh.md"
     doc_target = output_dir / "Release.zh.md"
@@ -314,15 +287,15 @@ def print_summary(version: str, build_number: str, output_dir: Path, copied_file
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="构建 OpenClaw Android 发布产物，并整理到 release/v版本 目录。")
+    parser = argparse.ArgumentParser(description="构建 OpenClaw Android arm64-v8a 发布 APK，并整理到 release/v版本 目录。")
     parser.add_argument("--version", help="发布版本号，例如 1.8.7 或 v1.8.7；默认使用当前 pubspec 版本")
     parser.add_argument("--build-number", help="Android 构建号，例如 17；默认使用当前 pubspec 构建号 +1")
     parser.add_argument("--output-dir", help="自定义输出目录，默认是 release/v版本")
     parser.add_argument("--non-interactive", action="store_true", help="不询问输入，直接使用参数或默认值")
     parser.add_argument("--skip-fetch-proot", action="store_true", help="跳过 PRoot 二进制检查与拉取")
     parser.add_argument("--skip-pub-get", action="store_true", help="跳过 flutter pub get")
-    parser.add_argument("--skip-split-apk", action="store_true", help="跳过分 ABI APK 构建")
-    parser.add_argument("--skip-aab", action="store_true", help="跳过 AAB 构建")
+    parser.add_argument("--skip-split-apk", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--skip-aab", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
@@ -371,8 +344,8 @@ def main() -> int:
 
     fetch_proot_if_needed(args.skip_fetch_proot)
     run_pub_get(args.skip_pub_get)
-    build_artifacts(version, build_number, args.skip_split_apk, args.skip_aab)
-    copied_files = collect_artifacts(version, output_dir, args.skip_split_apk, args.skip_aab)
+    build_artifacts(version, build_number)
+    copied_files = collect_artifacts(version, output_dir)
     print_summary(version, build_number, output_dir, copied_files)
 
     print("\n提示：如果你要正式发布，建议使用自己的 keystore 进行签名。")

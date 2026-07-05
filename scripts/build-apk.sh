@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the OpenClaw Flutter APK
+# Build the OpenClaw Flutter APK for arm64-v8a only.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -25,11 +25,11 @@ flutter pub get
 echo ""
 
 # Step 3: Build APK
-echo "[3/3] Building release APK..."
-flutter build apk --release
+echo "[3/3] Building arm64-v8a release APK..."
+flutter build apk --release --split-per-abi --target-platform android-arm64
 echo ""
 
-APK_PATH="$FLUTTER_DIR/build/app/outputs/flutter-apk/app-release.apk"
+APK_PATH="$FLUTTER_DIR/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
 if [ -f "$APK_PATH" ]; then
     echo "=== Build Successful ==="
     echo "APK: $APK_PATH"
