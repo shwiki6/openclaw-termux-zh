@@ -147,6 +147,14 @@ install_claude_package() {
       @anthropic-ai/claude-code-linux-arm64@latest
   fi
 
+  native_binary="$(find "$staging_dir/node_modules/@anthropic-ai" -path '*/claude' -type f 2>/dev/null | head -n 1 || true)"
+  if [ -z "$native_binary" ]; then
+    echo "Claude Code native binary was not installed. Installed packages:" >&2
+    find "$staging_dir/node_modules/@anthropic-ai" -maxdepth 2 -type f -name package.json -print 2>/dev/null >&2 || true
+    exit 127
+  fi
+  chmod 0755 "$native_binary" || true
+
   if [ -d "$target_dir" ]; then
     mv "$target_dir" "$previous_dir"
   fi
@@ -165,6 +173,31 @@ cat > /usr/local/bin/codex <<'OPENCLAW_CODEX_WRAPPER'
 export NODE_OPTIONS="${NODE_OPTIONS:---require /root/.openclaw/bionic-bypass.js}"
 export NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-/etc/ssl/certs/ca-certificates.crt}"
 [ -r /root/.openclaw/cli-env.sh ] && . /root/.openclaw/cli-env.sh
+if [ -r /root/.openclaw/codex-proxy.env ]; then
+  proxy_healthy=false
+  if command -v python3 >/dev/null 2>&1; then
+    if python3 - <<'OPENCLAW_CODEX_PROXY_HEALTH' >/dev/null 2>&1
+import urllib.request
+urllib.request.urlopen("http://127.0.0.1:8787/health", timeout=1).read()
+OPENCLAW_CODEX_PROXY_HEALTH
+    then
+      proxy_healthy=true
+    fi
+  elif command -v node >/dev/null 2>&1; then
+    if node -e 'fetch("http://127.0.0.1:8787/health", {signal: AbortSignal.timeout(1000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))' >/dev/null 2>&1; then
+      proxy_healthy=true
+    fi
+  fi
+
+  if [ "$proxy_healthy" != true ]; then
+    if command -v python3 >/dev/null 2>&1 && [ -r /root/.openclaw/codex-proxy.py ]; then
+      nohup python3 /root/.openclaw/codex-proxy.py >/tmp/openclaw-codex-proxy.log 2>&1 &
+    elif command -v node >/dev/null 2>&1 && [ -r /root/.openclaw/codex-proxy.js ]; then
+      nohup node /root/.openclaw/codex-proxy.js >/tmp/openclaw-codex-proxy.log 2>&1 &
+    fi
+    sleep 0.3
+  fi
+fi
 exec node /opt/openclaw-cli/codex/node_modules/@openai/codex/bin/codex.js "$@"
 OPENCLAW_CODEX_WRAPPER
 chmod 0755 /usr/local/bin/codex
@@ -187,10 +220,12 @@ node_modules=/opt/openclaw-cli/claude/node_modules
 main="$node_modules/@anthropic-ai/claude-code"
 musl="$node_modules/@anthropic-ai/claude-code-linux-arm64-musl/claude"
 glibc="$node_modules/@anthropic-ai/claude-code-linux-arm64/claude"
-if [ -x "$glibc" ]; then
+if [ -f "$glibc" ]; then
+  chmod 0755 "$glibc" 2>/dev/null || true
   exec "$glibc" "$@"
 fi
-if [ -x "$musl" ] && [ -e /lib/ld-musl-aarch64.so.1 ]; then
+if [ -f "$musl" ] && [ -e /lib/ld-musl-aarch64.so.1 ]; then
+  chmod 0755 "$musl" 2>/dev/null || true
   exec "$musl" "$@"
 fi
 if [ -x "$main/bin/claude.exe" ]; then

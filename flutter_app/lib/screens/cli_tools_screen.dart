@@ -28,6 +28,11 @@ class _CliToolsScreenState extends State<CliToolsScreen> {
     if (mounted) {
       setState(() => _loading = true);
     }
+    try {
+      await CliApiConfigService.regenerateRuntimeFiles();
+    } catch (_) {
+      // The Ubuntu rootfs may not exist yet; status checks below surface that.
+    }
     final statuses = await CliToolService.checkAllStatuses();
     if (!mounted) return;
     setState(() {

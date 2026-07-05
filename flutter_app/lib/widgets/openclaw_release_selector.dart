@@ -31,10 +31,12 @@ class _OpenClawReleaseSelectorState extends State<OpenClawReleaseSelector> {
   final _versionService = OpenClawVersionService();
   final Map<String, String?> _notesCache = {};
   final Set<String> _loadingNotes = {};
+  String? _expandedVersion;
 
   @override
   void initState() {
     super.initState();
+    _expandedVersion = widget.selectedRelease?.version;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadSelectedReleaseNotes();
     });
@@ -44,6 +46,7 @@ class _OpenClawReleaseSelectorState extends State<OpenClawReleaseSelector> {
   void didUpdateWidget(covariant OpenClawReleaseSelector oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.selectedRelease?.version != widget.selectedRelease?.version) {
+      _expandedVersion = widget.selectedRelease?.version;
       _loadSelectedReleaseNotes();
     }
   }
@@ -96,63 +99,108 @@ class _OpenClawReleaseSelectorState extends State<OpenClawReleaseSelector> {
     final l10n = context.l10n;
     final selected = widget.selectedRelease?.version == release.version;
     final groupValue = widget.selectedRelease?.version;
+    final expanded = _expandedVersion == release.version;
 
-    return ExpansionTile(
-      key: PageStorageKey('openclaw-release-${release.version}-$selected'),
-      initiallyExpanded: selected,
-      tilePadding: const EdgeInsets.only(left: 4, right: 12),
-      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-      leading: Radio<String>(
-        value: release.version,
-        groupValue: groupValue,
-        onChanged: widget.enabled ? (_) => widget.onChanged(release) : null,
-      ),
-      title: Text(
-        formatOpenClawReleaseLabel(
-          l10n,
-          release.version,
-          latestVersion: widget.latestRelease?.version,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: widget.enabled ? () => _toggleRelease(release) : null,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(4, 8, 12, 8),
+          child: Column(
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Radio<String>(
+                    value: release.version,
+                    groupValue: groupValue,
+                    onChanged:
+                        widget.enabled ? (_) => _selectRelease(release) : null,
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  formatOpenClawReleaseLabel(
+                                    l10n,
+                                    release.version,
+                                    latestVersion:
+                                        widget.latestRelease?.version,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: selected
+                                        ? FontWeight.w700
+                                        : FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              Icon(
+                                expanded
+                                    ? Icons.expand_less
+                                    : Icons.expand_more,
+                                size: 20,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _summary(l10n, release),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (expanded) ...[
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 0, 6),
+                  child: _buildReleaseDetails(context, release),
+                ),
+              ],
+            ],
+          ),
         ),
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-        ),
       ),
-      subtitle: Text(
-        _summary(l10n, release),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
-      onExpansionChanged: widget.enabled
-          ? (expanded) {
-              if (expanded) {
-                widget.onChanged(release);
-                _loadReleaseNotes(release.version);
-              }
-            }
-          : null,
+    );
+  }
+
+  Widget _buildReleaseDetails(
+    BuildContext context,
+    OpenClawReleaseInfo release,
+  ) {
+    final theme = Theme.of(context);
+    final l10n = context.l10n;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            l10n.t('openClawReleaseNotesTitle'),
-            style: theme.textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+        Text(
+          l10n.t('openClawReleaseNotesTitle'),
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 6),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            _releaseNotes(l10n, release),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              height: 1.35,
-            ),
+        Text(
+          _releaseNotes(l10n, release),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            height: 1.35,
           ),
         ),
         const SizedBox(height: 10),
@@ -182,6 +230,21 @@ class _OpenClawReleaseSelectorState extends State<OpenClawReleaseSelector> {
           ),
       ],
     );
+  }
+
+  void _toggleRelease(OpenClawReleaseInfo release) {
+    widget.onChanged(release);
+    setState(() {
+      _expandedVersion =
+          _expandedVersion == release.version ? null : release.version;
+    });
+    _loadReleaseNotes(release.version);
+  }
+
+  void _selectRelease(OpenClawReleaseInfo release) {
+    widget.onChanged(release);
+    setState(() => _expandedVersion = release.version);
+    _loadReleaseNotes(release.version);
   }
 
   Widget _detailLine(BuildContext context, IconData icon, String text) {

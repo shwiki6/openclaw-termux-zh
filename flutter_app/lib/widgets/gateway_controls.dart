@@ -137,6 +137,92 @@ class _GatewayControlsState extends State<GatewayControls> {
     }
   }
 
+  Future<void> _openOpenClawReleasePicker() async {
+    final l10n = context.l10n;
+    final releases = _availableReleases;
+    final latestRelease = _latestRelease;
+    final selectedRelease = _selectedRelease ?? latestRelease;
+    if (releases.isEmpty || selectedRelease == null) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        OpenClawReleaseInfo currentSelection = selectedRelease;
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final theme = Theme.of(context);
+            return FractionallySizedBox(
+              heightFactor: 0.88,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    20,
+                    0,
+                    20,
+                    16 + MediaQuery.viewInsetsOf(context).bottom,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              l10n.t('gatewaySelectVersion'),
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: MaterialLocalizations.of(context)
+                                .closeButtonTooltip,
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        l10n.t('openClawReleaseListLimitHint'),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: OpenClawReleaseSelector(
+                            releases: releases,
+                            selectedRelease: currentSelection,
+                            latestRelease: latestRelease,
+                            enabled: !_updating && !_loadingReleaseOptions,
+                            onChanged: (release) {
+                              setState(() => _selectedRelease = release);
+                              setSheetState(() {
+                                currentSelection = release;
+                              });
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _installSelectedRelease(GatewayProvider provider) async {
     final selectedRelease = _selectedRelease ?? _latestRelease;
     if (_updating || _loadingReleaseOptions || selectedRelease == null) return;
@@ -635,25 +721,69 @@ class _GatewayControlsState extends State<GatewayControls> {
             ],
           ),
           const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              l10n.t('gatewaySelectVersion'),
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w700,
+          InkWell(
+            onTap: _updating || _loadingReleaseOptions
+                ? null
+                : _openOpenClawReleasePicker,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.tune,
+                    size: 18,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.t('gatewaySelectVersion'),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          selectedRelease == null
+                              ? l10n.t('openClawReleaseListEmpty')
+                              : formatOpenClawReleaseLabel(
+                                  l10n,
+                                  selectedRelease.version,
+                                  latestVersion: _latestRelease?.version,
+                                ),
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (_loadingReleaseOptions)
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    Icon(
+                      Icons.keyboard_arrow_right,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(height: 6),
-          OpenClawReleaseSelector(
-            releases: _availableReleases,
-            selectedRelease: selectedRelease,
-            latestRelease: _latestRelease,
-            enabled: !_updating && !_loadingReleaseOptions,
-            onChanged: (release) {
-              setState(() => _selectedRelease = release);
-            },
           ),
           if (selectedRelease != null) ...[
             const SizedBox(height: 8),
