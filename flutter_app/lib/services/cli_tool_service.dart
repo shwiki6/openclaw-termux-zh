@@ -220,6 +220,17 @@ cat > /usr/local/bin/claude <<'OPENCLAW_CLAUDE_WRAPPER'
 export NODE_OPTIONS="${NODE_OPTIONS:---require /root/.openclaw/bionic-bypass.js}"
 export NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-/etc/ssl/certs/ca-certificates.crt}"
 [ -r /root/.openclaw/cli-env.sh ] && . /root/.openclaw/cli-env.sh
+if [ -r /root/.openclaw/claude-proxy.env ]; then
+  proxy_healthy=false
+  if node -e 'fetch("http://127.0.0.1:8788/health", {signal: AbortSignal.timeout(1000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))' >/dev/null 2>&1; then
+    proxy_healthy=true
+  fi
+
+  if [ "$proxy_healthy" != true ] && [ -r /root/.openclaw/claude-proxy.cjs ]; then
+    nohup node /root/.openclaw/claude-proxy.cjs >/tmp/openclaw-claude-proxy.log 2>&1 &
+    sleep 0.3
+  fi
+fi
 node_modules=/opt/openclaw-cli/claude/node_modules
 main="$node_modules/@anthropic-ai/claude-code"
 musl="$node_modules/@anthropic-ai/claude-code-linux-arm64-musl/claude"

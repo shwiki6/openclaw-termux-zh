@@ -5,6 +5,7 @@ class CliApiConfig {
   final String model;
   final String reasoningEffort;
   final String codexModelMapping;
+  final String apiProtocol;
 
   const CliApiConfig({
     required this.toolId,
@@ -13,6 +14,7 @@ class CliApiConfig {
     this.model = '',
     this.reasoningEffort = '',
     this.codexModelMapping = '',
+    this.apiProtocol = '',
   });
 
   bool get isConfigured =>
@@ -21,6 +23,12 @@ class CliApiConfig {
       model.trim().isNotEmpty ||
       reasoningEffort.trim().isNotEmpty ||
       codexModelMapping.trim().isNotEmpty;
+
+  String get effectiveApiProtocol {
+    final protocol = apiProtocol.trim();
+    if (protocol.isNotEmpty) return protocol;
+    return toolId == 'claude' ? 'anthropic' : 'openai';
+  }
 
   String get effectiveCodexModel {
     final mapped = codexModelMapping.trim();
@@ -33,6 +41,7 @@ class CliApiConfig {
     String? model,
     String? reasoningEffort,
     String? codexModelMapping,
+    String? apiProtocol,
   }) {
     return CliApiConfig(
       toolId: toolId,
@@ -41,6 +50,7 @@ class CliApiConfig {
       model: model ?? this.model,
       reasoningEffort: reasoningEffort ?? this.reasoningEffort,
       codexModelMapping: codexModelMapping ?? this.codexModelMapping,
+      apiProtocol: apiProtocol ?? this.apiProtocol,
     );
   }
 
@@ -50,6 +60,7 @@ class CliApiConfig {
         'model': model.trim(),
         'reasoningEffort': reasoningEffort.trim(),
         'codexModelMapping': codexModelMapping.trim(),
+        'apiProtocol': effectiveApiProtocol,
       };
 
   static CliApiConfig fromJson(String toolId, Map<String, dynamic>? json) {
@@ -63,6 +74,7 @@ class CliApiConfig {
       model: _string(json['model']),
       reasoningEffort: _string(json['reasoningEffort']),
       codexModelMapping: _string(json['codexModelMapping']),
+      apiProtocol: _string(json['apiProtocol']),
     );
   }
 

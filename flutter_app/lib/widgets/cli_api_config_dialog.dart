@@ -33,6 +33,7 @@ class _CliApiConfigDialogState extends State<CliApiConfigDialog> {
   final _modelController = TextEditingController();
   final _mappingController = TextEditingController();
   String _reasoningEffort = '';
+  String _apiProtocol = 'anthropic';
   List<String> _availableModels = const [];
   bool _loading = true;
   bool _saving = false;
@@ -40,6 +41,7 @@ class _CliApiConfigDialogState extends State<CliApiConfigDialog> {
   String? _error;
 
   bool get _isCodex => widget.tool.id == 'codex';
+  bool get _isClaude => widget.tool.id == 'claude';
 
   @override
   void initState() {
@@ -66,6 +68,7 @@ class _CliApiConfigDialogState extends State<CliApiConfigDialog> {
         _modelController.text = config.model;
         _mappingController.text = config.codexModelMapping;
         _reasoningEffort = config.reasoningEffort;
+        _apiProtocol = config.effectiveApiProtocol;
         _loading = false;
       });
     } catch (error) {
@@ -92,6 +95,7 @@ class _CliApiConfigDialogState extends State<CliApiConfigDialog> {
           model: _modelController.text,
           reasoningEffort: _reasoningEffort,
           codexModelMapping: _isCodex ? _mappingController.text : '',
+          apiProtocol: _isClaude ? _apiProtocol : 'openai',
         ),
       );
       if (!mounted) return;
@@ -116,6 +120,7 @@ class _CliApiConfigDialogState extends State<CliApiConfigDialog> {
         toolId: widget.tool.id,
         baseUrl: _baseUrlController.text,
         apiKey: _apiKeyController.text,
+        apiProtocol: _isClaude ? _apiProtocol : 'openai',
       );
       if (!mounted) return;
       setState(() {
@@ -155,12 +160,36 @@ class _CliApiConfigDialogState extends State<CliApiConfigDialog> {
                     Text(
                       _isCodex
                           ? 'Codex 支持自定义 OpenAI 兼容地址。若服务端模型名和 Codex 识别名不同，可填写模型映射。'
-                          : 'Claude Code 通常需要 Anthropic 兼容 API。第三方中转需兼容 Anthropic 协议。',
+                          : 'Claude Code 会连接本地代理。可选择 Anthropic 兼容接口，或把 OpenAI 兼容接口转换为 Anthropic 协议。',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
                     const SizedBox(height: 14),
+                    if (_isClaude) ...[
+                      DropdownButtonFormField<String>(
+                        initialValue: _apiProtocol,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: '接口协议',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'anthropic',
+                            child: Text('Anthropic 协议'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'openai',
+                            child: Text('OpenAI 兼容转 Anthropic'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          setState(() => _apiProtocol = value ?? 'anthropic');
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     TextField(
                       controller: _baseUrlController,
                       decoration: const InputDecoration(

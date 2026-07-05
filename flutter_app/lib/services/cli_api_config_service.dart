@@ -14,6 +14,10 @@ class CliApiConfigService {
   static const _codexProxyEnvPath = '/root/.openclaw/codex-proxy.env';
   static const _codexConfigPath = '/root/.codex/config.toml';
   static const _codexProxyBaseUrl = 'http://127.0.0.1:8787/v1';
+  static const _claudeProxyJsPath = '/root/.openclaw/claude-proxy.cjs';
+  static const _claudeProxyEnvPath = '/root/.openclaw/claude-proxy.env';
+  static const _claudeSettingsPath = '/root/.claude/settings.json';
+  static const _claudeProxyBaseUrl = 'http://127.0.0.1:8788';
   static const _prefsKey = 'cli_api_config_json';
 
   static const configurableToolIds = {'codex', 'claude'};
@@ -52,6 +56,7 @@ class CliApiConfigService {
     required String toolId,
     required String baseUrl,
     required String apiKey,
+    String apiProtocol = '',
   }) async {
     final endpoint = _modelsEndpoint(baseUrl);
     if (endpoint == null) {
@@ -61,15 +66,17 @@ class CliApiConfigService {
       throw Exception('请先填写 API Key');
     }
 
+    final protocol = apiProtocol.trim();
+    final useAnthropicHeaders = toolId == 'claude' && protocol != 'openai';
     final headers = <String, String>{
       'Accept': 'application/json',
-      if (toolId == 'claude') ...{
+      if (useAnthropicHeaders) ...{
         'x-api-key': apiKey.trim(),
         'anthropic-version': '2023-06-01',
       } else
         'Authorization': 'Bearer ${apiKey.trim()}',
     };
-    if (toolId == 'claude') {
+    if (useAnthropicHeaders) {
       headers['Authorization'] = 'Bearer ${apiKey.trim()}';
     }
 
@@ -113,10 +120,25 @@ class CliApiConfigService {
       _buildCodexProxyEnv(codex),
     );
     await NativeBridge.writeRootfsFile(_codexConfigPath, _buildCodexToml(codex));
+    await NativeBridge.writeRootfsFile(
+      _claudeProxyJsPath,
+      _buildClaudeProxyJs(),
+    );
+    await NativeBridge.writeRootfsFile(
+      _claudeProxyEnvPath,
+      _buildClaudeProxyEnv(claude),
+    );
+    await NativeBridge.writeRootfsFile(
+      _claudeSettingsPath,
+      _buildClaudeSettingsJson(claude),
+    );
     await NativeBridge.runInProot(
       'chmod 0755 $_codexProxyPath 2>/dev/null || true; '
       'chmod 0755 $_codexProxyJsPath 2>/dev/null || true; '
-      'chmod 0600 $_codexProxyEnvPath 2>/dev/null || true',
+      'chmod 0600 $_codexProxyEnvPath 2>/dev/null || true; '
+      'chmod 0755 $_claudeProxyJsPath 2>/dev/null || true; '
+      'chmod 0600 $_claudeProxyEnvPath 2>/dev/null || true; '
+      'chmod 0600 $_claudeSettingsPath 2>/dev/null || true',
       timeout: 10,
     );
   }
@@ -207,17 +229,39 @@ class CliApiConfigService {
       lines.add('export CODEX_REASONING_EFFORT=${_shQuote(effort)}');
     }
 
-    if (claude.apiKey.trim().isNotEmpty) {
-      lines.add('export ANTHROPIC_API_KEY=${_shQuote(claude.apiKey.trim())}');
+    final claudeUsesProxy = claude.baseUrl.trim().isNotEmpty;
+    if (claudeUsesProxy) {
+      lines.add('export ANTHROPIC_API_KEY=${_shQuote('dummy')}');
+      lines.add('export ANTHROPIC_BASE_URL=${_shQuote(_claudeProxyBaseUrl)}');
+      lines.add('export CLAUDE_CODE_BASE_URL=${_shQuote(_claudeProxyBaseUrl)}');
+      lines.add('export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1');
+      lines.add('export CLAUDE_CODE_DISABLE_AUTO_UPDATE=1');
+      lines.add('export API_TIMEOUT_MS=3000000');
+      lines.add('export OTEL_SDK_DISABLED=true');
       lines.add('unset ANTHROPIC_AUTH_TOKEN');
-    }
-    if (claude.baseUrl.trim().isNotEmpty) {
-      lines.add('export ANTHROPIC_BASE_URL=${_shQuote(claude.baseUrl.trim())}');
-      lines.add('export CLAUDE_CODE_BASE_URL=${_shQuote(claude.baseUrl.trim())}');
+    } else if (claude.apiKey.trim().isNotEmpty) {
+      lines.add('export ANTHROPIC_API_KEY=${_shQuote(claude.apiKey.trim())}');
+      lines.add('export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1');
+      lines.add('export CLAUDE_CODE_DISABLE_AUTO_UPDATE=1');
+      lines.add('export API_TIMEOUT_MS=3000000');
+      lines.add('unset ANTHROPIC_AUTH_TOKEN');
     }
     if (claude.model.trim().isNotEmpty) {
       lines.add('export ANTHROPIC_MODEL=${_shQuote(claude.model.trim())}');
       lines.add('export CLAUDE_CODE_MODEL=${_shQuote(claude.model.trim())}');
+      lines.add(
+        'export ANTHROPIC_SMALL_FAST_MODEL=${_shQuote(claude.model.trim())}',
+      );
+      lines.add(
+        'export ANTHROPIC_DEFAULT_SONNET_MODEL='
+        '${_shQuote(claude.model.trim())}',
+      );
+      lines.add(
+        'export ANTHROPIC_DEFAULT_OPUS_MODEL=${_shQuote(claude.model.trim())}',
+      );
+      lines.add(
+        'export ANTHROPIC_DEFAULT_HAIKU_MODEL=${_shQuote(claude.model.trim())}',
+      );
     }
     if (claude.reasoningEffort.trim().isNotEmpty) {
       final effort = claude.reasoningEffort.trim();
@@ -287,6 +331,87 @@ class CliApiConfigService {
     }
     lines.add('');
     return lines.join('\n');
+  }
+
+  static String _buildClaudeProxyEnv(CliApiConfig claude) {
+    final lines = <String>[
+      'OPENCLAW_CLAUDE_PROXY_HOST=127.0.0.1',
+      'OPENCLAW_CLAUDE_PROXY_PORT=8788',
+      'OPENCLAW_CLAUDE_PROXY_PROTOCOL='
+          '${_shQuote(claude.effectiveApiProtocol == 'openai' ? 'openai' : 'anthropic')}',
+    ];
+    final upstream = claude.baseUrl.trim();
+    if (upstream.isNotEmpty) {
+      lines.add(
+        'OPENCLAW_CLAUDE_PROXY_UPSTREAM='
+        '${_shQuote(_trimTrailingSlash(upstream))}',
+      );
+    }
+    if (claude.apiKey.trim().isNotEmpty) {
+      lines.add('OPENCLAW_CLAUDE_PROXY_API_KEY=${_shQuote(claude.apiKey.trim())}');
+    }
+    if (claude.model.trim().isNotEmpty) {
+      lines.add('OPENCLAW_CLAUDE_PROXY_MODEL=${_shQuote(claude.model.trim())}');
+    }
+    if (claude.reasoningEffort.trim().isNotEmpty) {
+      lines.add(
+        'OPENCLAW_CLAUDE_PROXY_REASONING_EFFORT='
+        '${_shQuote(claude.reasoningEffort.trim())}',
+      );
+    }
+    lines.add('');
+    return lines.join('\n');
+  }
+
+  static String _buildClaudeSettingsJson(CliApiConfig claude) {
+    final env = <String, String>{
+      'TMPDIR': '/tmp',
+      'API_TIMEOUT_MS': '3000000',
+      'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+      'CLAUDE_CODE_DISABLE_AUTO_UPDATE': '1',
+      'OTEL_SDK_DISABLED': 'true',
+    };
+    if (claude.baseUrl.trim().isNotEmpty) {
+      env['ANTHROPIC_API_KEY'] = 'dummy';
+      env['ANTHROPIC_BASE_URL'] = _claudeProxyBaseUrl;
+    } else if (claude.apiKey.trim().isNotEmpty) {
+      env['ANTHROPIC_API_KEY'] = claude.apiKey.trim();
+    }
+    if (claude.model.trim().isNotEmpty) {
+      final model = claude.model.trim();
+      env['ANTHROPIC_MODEL'] = model;
+      env['CLAUDE_CODE_MODEL'] = model;
+      env['ANTHROPIC_SMALL_FAST_MODEL'] = model;
+      env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = model;
+      env['ANTHROPIC_DEFAULT_OPUS_MODEL'] = model;
+      env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] = model;
+    }
+
+    final settings = <String, dynamic>{
+      'env': env,
+      'permissions': <String, dynamic>{
+        'allow': const [
+          'Read(/storage/emulated/0/**)',
+          'Bash(/storage/emulated/0/**)',
+          'Read(/root/**)',
+          'Bash(/root/**)',
+          'Write(/storage/emulated/0/**)',
+          'Edit(/storage/emulated/0/**)',
+          'MultiEdit(/storage/emulated/0/**)',
+          'Write(/root/**)',
+          'Edit(/root/**)',
+          'MultiEdit(/root/**)',
+        ],
+        'additionalDirectories': const [
+          '/storage/emulated/0',
+          '/storage/emulated/0/ZeroTermux/开发',
+          '/root',
+        ],
+      },
+      'sandbox': <String, dynamic>{'enabled': false},
+      'skipDangerousModePermissionPrompt': true,
+    };
+    return '${const JsonEncoder.withIndent('  ').convert(settings)}\n';
   }
 
   static String _trimTrailingSlash(String value) {
@@ -525,6 +650,413 @@ const server = http.createServer((clientReq, clientRes) => {
     sendJson(clientRes, 502, { error: String(error.message || error) });
   });
   clientReq.pipe(upstreamReq);
+});
+
+const cfg = config();
+server.listen(cfg.port, cfg.host);
+''';
+  }
+
+  static String _buildClaudeProxyJs() {
+    return r'''#!/usr/bin/env node
+const http = require("http");
+const https = require("https");
+const fs = require("fs");
+const { URL } = require("url");
+
+const envFile = "/root/.openclaw/claude-proxy.env";
+
+function loadEnv() {
+  const values = {};
+  if (!fs.existsSync(envFile)) return values;
+  for (const rawLine of fs.readFileSync(envFile, "utf8").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#") || !line.includes("=")) continue;
+    const index = line.indexOf("=");
+    const key = line.slice(0, index).trim();
+    let value = line.slice(index + 1).trim();
+    if (
+      (value.startsWith("'") && value.endsWith("'")) ||
+      (value.startsWith('"') && value.endsWith('"'))
+    ) {
+      value = value.slice(1, -1);
+    }
+    values[key] = value;
+  }
+  return values;
+}
+
+function config() {
+  const values = loadEnv();
+  return {
+    protocol: (
+      values.OPENCLAW_CLAUDE_PROXY_PROTOCOL ||
+      process.env.OPENCLAW_CLAUDE_PROXY_PROTOCOL ||
+      "anthropic"
+    ).toLowerCase(),
+    upstream: (
+      values.OPENCLAW_CLAUDE_PROXY_UPSTREAM ||
+      process.env.OPENCLAW_CLAUDE_PROXY_UPSTREAM ||
+      ""
+    ).replace(/\/+$/, ""),
+    token:
+      values.OPENCLAW_CLAUDE_PROXY_API_KEY ||
+      process.env.OPENCLAW_CLAUDE_PROXY_API_KEY ||
+      "",
+    model:
+      values.OPENCLAW_CLAUDE_PROXY_MODEL ||
+      process.env.OPENCLAW_CLAUDE_PROXY_MODEL ||
+      "",
+    reasoningEffort:
+      values.OPENCLAW_CLAUDE_PROXY_REASONING_EFFORT ||
+      process.env.OPENCLAW_CLAUDE_PROXY_REASONING_EFFORT ||
+      "",
+    host: values.OPENCLAW_CLAUDE_PROXY_HOST || "127.0.0.1",
+    port: Number(values.OPENCLAW_CLAUDE_PROXY_PORT || 8788),
+  };
+}
+
+function sendJson(res, status, payload) {
+  const body = Buffer.from(JSON.stringify(payload));
+  res.writeHead(status, {
+    "content-type": "application/json",
+    "content-length": body.length,
+    connection: "close",
+  });
+  res.end(body);
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+function joinText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((item) => {
+      if (!item || typeof item !== "object") return "";
+      if (item.type === "text") return item.text || "";
+      if (item.type === "tool_result") {
+        return typeof item.content === "string"
+          ? item.content
+          : joinText(item.content || []);
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function anthropicMessagesToOpenAi(payload, cfg) {
+  const messages = [];
+  const system = joinText(payload.system || "");
+  if (system) messages.push({ role: "system", content: system });
+
+  for (const message of payload.messages || []) {
+    const role = message.role === "assistant" ? "assistant" : "user";
+    const content = message.content;
+    if (Array.isArray(content)) {
+      const text = joinText(content);
+      const toolCalls = content
+        .filter((item) => item && item.type === "tool_use")
+        .map((item) => ({
+          id: item.id,
+          type: "function",
+          function: {
+            name: item.name || "",
+            arguments: JSON.stringify(item.input || {}),
+          },
+        }));
+      const toolResults = content.filter((item) => item && item.type === "tool_result");
+      if (role === "assistant") {
+        const converted = { role, content: text || null };
+        if (toolCalls.length) converted.tool_calls = toolCalls;
+        messages.push(converted);
+      } else {
+        if (text) messages.push({ role, content: text });
+        for (const result of toolResults) {
+          messages.push({
+            role: "tool",
+            tool_call_id: result.tool_use_id || result.id || "tool_call",
+            content: joinText(result.content || ""),
+          });
+        }
+      }
+    } else {
+      messages.push({ role, content: String(content || "") });
+    }
+  }
+
+  const request = {
+    model: cfg.model || payload.model,
+    messages,
+    stream: false,
+  };
+  if (payload.max_tokens) request.max_tokens = payload.max_tokens;
+  if (payload.temperature !== undefined) request.temperature = payload.temperature;
+  if (payload.top_p !== undefined) request.top_p = payload.top_p;
+  if (cfg.reasoningEffort) request.reasoning_effort = cfg.reasoningEffort;
+  if (Array.isArray(payload.tools) && payload.tools.length) {
+    request.tools = payload.tools.map((tool) => ({
+      type: "function",
+      function: {
+        name: tool.name,
+        description: tool.description || "",
+        parameters: tool.input_schema || { type: "object", properties: {} },
+      },
+    }));
+    request.tool_choice = "auto";
+  }
+  return request;
+}
+
+function openAiToAnthropic(payload, openai, cfg) {
+  const choice = (openai.choices || [])[0] || {};
+  const message = choice.message || {};
+  const content = [];
+  if (message.content) {
+    content.push({ type: "text", text: String(message.content) });
+  }
+  for (const call of message.tool_calls || []) {
+    let input = {};
+    try {
+      input = JSON.parse(call.function?.arguments || "{}");
+    } catch (_) {
+      input = { raw: call.function?.arguments || "" };
+    }
+    content.push({
+      type: "tool_use",
+      id: call.id || `toolu_${Date.now()}`,
+      name: call.function?.name || "",
+      input,
+    });
+  }
+  const finish = choice.finish_reason || "stop";
+  return {
+    id: openai.id || `msg_${Date.now()}`,
+    type: "message",
+    role: "assistant",
+    model: cfg.model || payload.model || openai.model || "",
+    content,
+    stop_reason: finish === "tool_calls" ? "tool_use" : finish === "length" ? "max_tokens" : "end_turn",
+    stop_sequence: null,
+    usage: {
+      input_tokens: openai.usage?.prompt_tokens || 0,
+      output_tokens: openai.usage?.completion_tokens || 0,
+    },
+  };
+}
+
+function sse(res, event, data) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function sendAnthropicSse(res, message) {
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    connection: "close",
+  });
+  sse(res, "message_start", {
+    type: "message_start",
+    message: { ...message, content: [] },
+  });
+  message.content.forEach((block, index) => {
+    if (block.type === "text") {
+      sse(res, "content_block_start", {
+        type: "content_block_start",
+        index,
+        content_block: { type: "text", text: "" },
+      });
+      if (block.text) {
+        sse(res, "content_block_delta", {
+          type: "content_block_delta",
+          index,
+          delta: { type: "text_delta", text: block.text },
+        });
+      }
+    } else if (block.type === "tool_use") {
+      sse(res, "content_block_start", {
+        type: "content_block_start",
+        index,
+        content_block: {
+          type: "tool_use",
+          id: block.id,
+          name: block.name,
+          input: {},
+        },
+      });
+      sse(res, "content_block_delta", {
+        type: "content_block_delta",
+        index,
+        delta: {
+          type: "input_json_delta",
+          partial_json: JSON.stringify(block.input || {}),
+        },
+      });
+    }
+    sse(res, "content_block_stop", { type: "content_block_stop", index });
+  });
+  sse(res, "message_delta", {
+    type: "message_delta",
+    delta: {
+      stop_reason: message.stop_reason || "end_turn",
+      stop_sequence: null,
+    },
+    usage: { output_tokens: message.usage?.output_tokens || 0 },
+  });
+  sse(res, "message_stop", { type: "message_stop" });
+  res.end();
+}
+
+function targetUrl(upstream, path, protocol) {
+  if (!upstream) throw new Error("Claude proxy upstream is not configured");
+  const upstreamPath = new URL(upstream).pathname.replace(/\/+$/, "");
+  if (protocol === "openai") {
+    if (upstreamPath.endsWith("/v1")) return upstream + "/chat/completions";
+    return upstream + "/v1/chat/completions";
+  }
+  if (upstreamPath.endsWith("/v1") && path.startsWith("/v1/")) {
+    return upstream + path.slice(3);
+  }
+  return upstream + path;
+}
+
+function proxyAnthropic(req, res, body, cfg) {
+  let target;
+  try {
+    target = new URL(targetUrl(cfg.upstream, req.url, "anthropic"));
+  } catch (error) {
+    sendJson(res, 502, { error: String(error.message || error) });
+    return;
+  }
+  const headers = { ...req.headers };
+  delete headers.host;
+  delete headers.connection;
+  delete headers["content-length"];
+  delete headers["accept-encoding"];
+  delete headers.authorization;
+  delete headers["x-api-key"];
+  if (cfg.token) headers["x-api-key"] = cfg.token;
+  headers["anthropic-version"] = headers["anthropic-version"] || "2023-06-01";
+  if (body.length) headers["content-length"] = body.length;
+
+  const transport = target.protocol === "https:" ? https : http;
+  const upstreamReq = transport.request(
+    target,
+    { method: req.method, headers },
+    (upstreamRes) => {
+      const responseHeaders = { ...upstreamRes.headers };
+      delete responseHeaders["transfer-encoding"];
+      delete responseHeaders.connection;
+      delete responseHeaders["content-encoding"];
+      res.writeHead(upstreamRes.statusCode || 502, responseHeaders);
+      upstreamRes.pipe(res);
+    },
+  );
+  upstreamReq.on("error", (error) => {
+    sendJson(res, 502, { error: String(error.message || error) });
+  });
+  upstreamReq.end(body);
+}
+
+async function handleOpenAi(req, res, body, cfg) {
+  const pathname = new URL(req.url, "http://local").pathname;
+  if (req.method === "GET" && pathname === "/v1/models") {
+    sendJson(res, 200, {
+      object: "list",
+      data: cfg.model ? [{ id: cfg.model, object: "model" }] : [],
+    });
+    return;
+  }
+  if (req.method === "POST" && pathname === "/v1/messages/count_tokens") {
+    let payload = {};
+    try {
+      payload = JSON.parse(body.toString("utf8") || "{}");
+    } catch (_) {}
+    const text = JSON.stringify(payload);
+    sendJson(res, 200, { input_tokens: Math.max(1, Math.ceil(text.length / 4)) });
+    return;
+  }
+  if (req.method !== "POST" || pathname !== "/v1/messages") {
+    sendJson(res, 404, { error: "Only /v1/messages is supported in OpenAI compatibility mode" });
+    return;
+  }
+  let payload;
+  try {
+    payload = JSON.parse(body.toString("utf8") || "{}");
+  } catch (error) {
+    sendJson(res, 400, { error: "Invalid JSON body" });
+    return;
+  }
+
+  const openaiRequest = anthropicMessagesToOpenAi(payload, cfg);
+  const wantsStream = payload.stream === true;
+  let response;
+  try {
+    response = await fetch(targetUrl(cfg.upstream, req.url, "openai"), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: cfg.token ? `Bearer ${cfg.token}` : "",
+      },
+      body: JSON.stringify(openaiRequest),
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: String(error.message || error) });
+    return;
+  }
+  const text = await response.text();
+  if (!response.ok) {
+    res.writeHead(response.status, {
+      "content-type": response.headers.get("content-type") || "application/json",
+      "content-length": Buffer.byteLength(text),
+      connection: "close",
+    });
+    res.end(text);
+    return;
+  }
+  let openai;
+  try {
+    openai = JSON.parse(text);
+  } catch (_) {
+    sendJson(res, 502, { error: "OpenAI upstream returned non-JSON response" });
+    return;
+  }
+  const anthropic = openAiToAnthropic(payload, openai, cfg);
+  if (wantsStream) {
+    sendAnthropicSse(res, anthropic);
+  } else {
+    sendJson(res, 200, anthropic);
+  }
+}
+
+const server = http.createServer(async (req, res) => {
+  const cfg = config();
+  const requestUrl = new URL(req.url, `http://${cfg.host}:${cfg.port}`);
+  if (requestUrl.pathname === "/health") {
+    sendJson(res, 200, {
+      ok: true,
+      protocol: cfg.protocol,
+      upstream: cfg.upstream,
+      model: cfg.model,
+      has_key: Boolean(cfg.token),
+    });
+    return;
+  }
+  const body = await readBody(req);
+  if (cfg.protocol === "openai") {
+    await handleOpenAi(req, res, body, cfg);
+  } else {
+    proxyAnthropic(req, res, body, cfg);
+  }
 });
 
 const cfg = config();
