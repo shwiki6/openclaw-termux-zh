@@ -127,8 +127,8 @@ install_cli_package() {
 }
 ''';
 
-  static const _codexInstallCommand = '''
-$_commonNpmInstallPrefix
+  static const _codexInstallCommand = _commonNpmInstallPrefix +
+      r'''
 echo ">>> Installing OpenAI Codex CLI from npm..."
 install_cli_package codex @openai/codex codex
 cat > /usr/local/bin/codex <<'OPENCLAW_CODEX_WRAPPER'
@@ -143,8 +143,8 @@ hash -r
 echo ">>> CODEX_CLI_INSTALL_COMPLETE"
 ''';
 
-  static const _claudeInstallCommand = '''
-$_commonNpmInstallPrefix
+  static const _claudeInstallCommand = _commonNpmInstallPrefix +
+      r'''
 ensure_node_22
 echo ">>> Installing Claude Code from npm..."
 install_cli_package claude @anthropic-ai/claude-code claude
