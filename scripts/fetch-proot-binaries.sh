@@ -1,10 +1,10 @@
 #!/bin/bash
 # Fetch pre-compiled PRoot binaries from Termux packages for Android.
-# Extracts proot, libtalloc, and loader from Termux .deb packages.
+# Extracts proot, libtalloc, libandroid-shmem, and loader from Termux .deb packages.
 # Places them in jniLibs/<abi>/lib*.so so Android auto-extracts
 # them to nativeLibraryDir with execute permission (bypasses W^X).
 #
-# At runtime, BootstrapManager copies libtalloc.so → libtalloc.so.2
+# At runtime, BootstrapManager copies libtalloc.so -> libtalloc.so.2
 # (matching the SONAME proot expects) in a writable directory.
 
 set -euo pipefail
@@ -78,6 +78,12 @@ fetch_for_abi() {
         return 1
     fi
 
+    # Fetch libandroid-shmem package (proot links against it on current Termux)
+    local shmem_dir="$extract_base/android-shmem"
+    if ! fetch_termux_pkg "libandroid-shmem" "$deb_arch" "$shmem_dir"; then
+        return 1
+    fi
+
     # Copy proot binary
     local proot_bin
     proot_bin=$(find "$proot_dir" -name "proot" -path "*/bin/*" -type f | head -1)
@@ -123,7 +129,20 @@ fetch_for_abi() {
         echo "  [$jni_abi] WARN: libtalloc not found"
     fi
 
-    for required in libproot.so libprootloader.so libprootloader32.so libtalloc.so; do
+    # Copy libandroid-shmem (same SONAME as Android needs at runtime)
+    local shmem_lib
+    shmem_lib=$(find "$shmem_dir" -name "libandroid-shmem.so*" -not -name "*.py" -type f | head -1)
+    if [ -z "$shmem_lib" ]; then
+        shmem_lib=$(find "$shmem_dir" -name "libandroid-shmem.so*" -type l | head -1)
+    fi
+    if [ -n "$shmem_lib" ]; then
+        cp -L "$shmem_lib" "$out_dir/libandroid-shmem.so"
+        chmod 755 "$out_dir/libandroid-shmem.so"
+    else
+        echo "  [$jni_abi] WARN: libandroid-shmem not found"
+    fi
+
+    for required in libproot.so libprootloader.so libprootloader32.so libtalloc.so libandroid-shmem.so; do
         if [ ! -s "$out_dir/$required" ]; then
             echo "  [$jni_abi] ERROR: missing required native binary: $required"
             return 1
@@ -133,7 +152,7 @@ fetch_for_abi() {
     echo "  [$jni_abi] OK — $(ls "$out_dir"/ | tr '\n' ' ')"
 }
 
-echo "=== Fetching PRoot + libtalloc from Termux packages ==="
+echo "=== Fetching PRoot + libtalloc + libandroid-shmem from Termux packages ==="
 echo ""
 
 SUCCESS=0

@@ -101,6 +101,7 @@ class BootstrapManager(
             "libprootloader.so",
             "libprootloader32.so",
             "libtalloc.so",
+            "libandroid-shmem.so",
         ).forEach { libName ->
             ensureNativeRuntimeBinary(libName)
         }
