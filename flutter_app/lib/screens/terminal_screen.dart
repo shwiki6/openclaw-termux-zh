@@ -4,6 +4,7 @@ import 'package:xterm/xterm.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/persistent_terminal_session.dart';
 import '../services/screenshot_service.dart';
+import '../widgets/responsive_layout.dart';
 import '../widgets/terminal_toolbar.dart';
 
 class TerminalScreen extends StatefulWidget {
@@ -299,58 +300,100 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final compactActions = MediaQuery.sizeOf(context).width < 380;
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.camera_alt_outlined),
-            tooltip: 'Screenshot',
-            onPressed: _takeScreenshot,
-          ),
-          IconButton(
-            icon: const Icon(Icons.copy),
-            tooltip: 'Copy',
-            onPressed: _copySelection,
-          ),
-          IconButton(
-            icon: const Icon(Icons.open_in_browser),
-            tooltip: 'Open URL',
-            onPressed: _openSelection,
-          ),
-          IconButton(
-            icon: const Icon(Icons.paste),
-            tooltip: 'Paste',
-            onPressed: _paste,
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Restart',
-            onPressed: () {
-              _startPty(restart: true);
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.close),
-            tooltip: 'Close session',
-            onPressed: () async {
-              await _session.close();
-              if (context.mounted) {
-                Navigator.of(context).pop(true);
-              }
-            },
-          ),
-        ],
+        actions: compactActions ? [_buildOverflowMenu()] : _buildToolbarActions(),
       ),
       body: _buildBody(),
     );
   }
 
+  List<Widget> _buildToolbarActions() {
+    return [
+      IconButton(
+        icon: const Icon(Icons.camera_alt_outlined),
+        tooltip: 'Screenshot',
+        onPressed: _takeScreenshot,
+      ),
+      IconButton(
+        icon: const Icon(Icons.copy),
+        tooltip: 'Copy',
+        onPressed: _copySelection,
+      ),
+      IconButton(
+        icon: const Icon(Icons.open_in_browser),
+        tooltip: 'Open URL',
+        onPressed: _openSelection,
+      ),
+      IconButton(
+        icon: const Icon(Icons.paste),
+        tooltip: 'Paste',
+        onPressed: _paste,
+      ),
+      IconButton(
+        icon: const Icon(Icons.refresh),
+        tooltip: 'Restart',
+        onPressed: () {
+          _startPty(restart: true);
+        },
+      ),
+      IconButton(
+        icon: const Icon(Icons.close),
+        tooltip: 'Close session',
+        onPressed: _closeSession,
+      ),
+    ];
+  }
+
+  Widget _buildOverflowMenu() {
+    return PopupMenuButton<String>(
+      onSelected: (value) {
+        switch (value) {
+          case 'screenshot':
+            _takeScreenshot();
+            break;
+          case 'copy':
+            _copySelection();
+            break;
+          case 'open':
+            _openSelection();
+            break;
+          case 'paste':
+            _paste();
+            break;
+          case 'restart':
+            _startPty(restart: true);
+            break;
+          case 'close':
+            _closeSession();
+            break;
+        }
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem(value: 'screenshot', child: Text('Screenshot')),
+        PopupMenuItem(value: 'copy', child: Text('Copy')),
+        PopupMenuItem(value: 'open', child: Text('Open URL')),
+        PopupMenuItem(value: 'paste', child: Text('Paste')),
+        PopupMenuItem(value: 'restart', child: Text('Restart')),
+        PopupMenuItem(value: 'close', child: Text('Close session')),
+      ],
+    );
+  }
+
+  Future<void> _closeSession() async {
+    await _session.close();
+    if (context.mounted) {
+      Navigator.of(context).pop(true);
+    }
+  }
+
   Widget _buildBody() {
     if (_session.loading) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      return ResponsiveLayout.scrollableCenter(
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
@@ -361,33 +404,30 @@ class _TerminalScreenState extends State<TerminalScreen> {
     }
 
     if (_session.error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.error_outline,
-                size: 48,
-                color: Theme.of(context).colorScheme.error,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                _session.error!,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: () {
-                  _startPty(restart: true);
-                },
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ],
-          ),
+      return ResponsiveLayout.scrollableCenter(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 48,
+              color: Theme.of(context).colorScheme.error,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _session.error!,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () {
+                _startPty(restart: true);
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
         ),
       );
     }

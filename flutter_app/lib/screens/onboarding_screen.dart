@@ -13,6 +13,7 @@ import '../services/terminal_output_buffer.dart';
 import '../services/terminal_service.dart';
 import '../services/preferences_service.dart';
 import '../services/provider_config_service.dart';
+import '../widgets/responsive_layout.dart';
 import '../widgets/terminal_toolbar.dart';
 import 'dashboard_screen.dart';
 
@@ -483,9 +484,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         children: [
           if (_loading)
             Expanded(
-              child: Center(
+              child: ResponsiveLayout.scrollableCenter(
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     const CircularProgressIndicator(),
                     const SizedBox(height: 16),
@@ -496,39 +497,36 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             )
           else if (_error != null)
             Expanded(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        size: 48,
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _error!,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            color: Theme.of(context).colorScheme.error),
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            _loading = true;
-                            _error = null;
-                            _finished = false;
-                          });
-                          _startOnboarding();
-                        },
-                        icon: const Icon(Icons.refresh),
-                        label: Text(l10n.t('commonRetry')),
-                      ),
-                    ],
-                  ),
+              child: ResponsiveLayout.scrollableCenter(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.error),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _loading = true;
+                          _error = null;
+                          _finished = false;
+                        });
+                        _startOnboarding();
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: Text(l10n.t('commonRetry')),
+                    ),
+                  ],
                 ),
               ),
             )

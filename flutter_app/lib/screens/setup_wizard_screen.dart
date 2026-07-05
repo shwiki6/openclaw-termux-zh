@@ -19,6 +19,7 @@ import '../services/snapshot_service.dart';
 import '../widgets/cli_api_config_dialog.dart';
 import '../widgets/openclaw_release_selector.dart';
 import '../widgets/progress_step.dart';
+import '../widgets/responsive_layout.dart';
 import 'dashboard_screen.dart';
 import 'onboarding_screen.dart';
 
@@ -358,6 +359,93 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     }
   }
 
+  Future<void> _openOpenClawReleasePicker() async {
+    final l10n = context.l10n;
+    final releases = _availableReleases;
+    final latestRelease = _latestRelease;
+    final selectedRelease = _selectedRelease ?? latestRelease;
+    if (releases.isEmpty || selectedRelease == null) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        OpenClawReleaseInfo currentSelection = selectedRelease;
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final theme = Theme.of(context);
+            return FractionallySizedBox(
+              heightFactor: 0.88,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    20,
+                    0,
+                    20,
+                    16 + MediaQuery.viewInsetsOf(context).bottom,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              l10n.t('setupWizardSelectVersion'),
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip:
+                                MaterialLocalizations.of(context)
+                                    .closeButtonTooltip,
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        l10n.t('openClawReleaseListLimitHint'),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: OpenClawReleaseSelector(
+                            releases: releases,
+                            selectedRelease: currentSelection,
+                            latestRelease: latestRelease,
+                            enabled: true,
+                            onChanged: (release) {
+                              setState(() => _selectedRelease = release);
+                              setSheetState(() {
+                                currentSelection = release;
+                              });
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _importSnapshotAndContinue() async {
     final l10n = context.l10n;
     try {
@@ -567,56 +655,69 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             final isResolvingCompletionChoice =
                 _resolvingExistingSetupState && !state.isComplete;
 
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSetupHeader(theme, l10n, isRunning: _started),
-                  const SizedBox(height: 24),
-                  Expanded(
-                    child: _buildSteps(state, l10n),
-                  ),
-                  if (isResolvingCompletionChoice)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      child: Center(
-                        child: CircularProgressIndicator(),
-                      ),
-                    ),
-                  if (state.hasError) ...[
-                    const SizedBox(height: 10),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 160),
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.errorContainer,
-                          borderRadius: BorderRadius.circular(8),
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final isCompact = ResponsiveLayout.isCompact(context);
+                final stepsHeight = (constraints.maxHeight * 0.42)
+                    .clamp(220.0, 320.0)
+                    .toDouble();
+                final content = Padding(
+                  padding: ResponsiveLayout.pagePadding(context),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSetupHeader(theme, l10n, isRunning: _started),
+                      SizedBox(height: isCompact ? 14 : 24),
+                      if (isCompact)
+                        SizedBox(
+                          height: stepsHeight,
+                          child: _buildSteps(state, l10n),
+                        )
+                      else
+                        Expanded(
+                          child: _buildSteps(state, l10n),
                         ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.error_outline,
-                              color: theme.colorScheme.error,
+                      if (isResolvingCompletionChoice)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                        ),
+                      if (state.hasError) ...[
+                        const SizedBox(height: 10),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 160),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.errorContainer,
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: SingleChildScrollView(
-                                child: Text(
-                                  state.error ?? l10n.t('commonUnknown'),
-                                  style: TextStyle(
-                                    color: theme.colorScheme.onErrorContainer,
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.error_outline,
+                                  color: theme.colorScheme.error,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    child: Text(
+                                      state.error ?? l10n.t('commonUnknown'),
+                                      style: TextStyle(
+                                        color:
+                                            theme.colorScheme.onErrorContainer,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
-                      ),
-                    ),
-                  ],
+                      ],
                   if (state.isComplete) ...[
                     SizedBox(
                       width: double.infinity,
@@ -707,8 +808,20 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                       ),
                     ),
                   ),
-                ],
-              ),
+                    ],
+                  ),
+                );
+
+                if (isCompact) {
+                  return SingleChildScrollView(
+                    child: ResponsiveLayout.constrainContent(
+                      child: content,
+                    ),
+                  );
+                }
+
+                return ResponsiveLayout.constrainContent(child: content);
+              },
             );
           },
         ),
@@ -1038,6 +1151,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     final canSelectVersions =
         availableReleases.isNotEmpty && selectedRelease != null;
 
+    final fillColor =
+        theme.inputDecorationTheme.fillColor ?? theme.colorScheme.surface;
+    final titleColor =
+        disableSelection ? theme.disabledColor : theme.colorScheme.onSurface;
+    final subtitleColor = disableSelection
+        ? theme.disabledColor
+        : theme.colorScheme.onSurfaceVariant;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1049,62 +1170,110 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           ),
         ),
         const SizedBox(height: 6),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                l10n.t('openClawReleaseListLimitHint'),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+        Material(
+          color: fillColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: disableSelection || !canSelectVersions
+                ? null
+                : _openOpenClawReleasePicker,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 11, 6, 11),
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withAlpha(18),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      Icons.new_releases_outlined,
+                      color: disableSelection
+                          ? theme.disabledColor
+                          : theme.colorScheme.primary,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          selectedRelease == null
+                              ? l10n.t('openClawReleaseListEmpty')
+                              : formatOpenClawReleaseLabel(
+                                  l10n,
+                                  selectedRelease.version,
+                                  latestVersion: latestRelease?.version,
+                                ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: titleColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          selectedRelease == null
+                              ? l10n.t('openClawReleaseListLimitHint')
+                              : l10n.t('setupWizardSelectedVersionHint', {
+                                  'version': selectedRelease.version,
+                                  'size': selectedRelease.unpackedSizeLabel ??
+                                      AppConstants.openClawEstimatedSize,
+                                }),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: subtitleColor,
+                            height: 1.25,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: l10n.t('gatewayCheckUpdate'),
+                    onPressed: disableSelection
+                        ? null
+                        : _loadOpenClawReleaseOptions,
+                    icon: _loadingReleaseOptions
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh),
+                    color: subtitleColor,
+                  ),
+                  Icon(
+                    Icons.chevron_right,
+                    color: subtitleColor,
+                  ),
+                ],
               ),
             ),
-            IconButton(
-              tooltip: l10n.t('gatewayCheckUpdate'),
-              onPressed: disableSelection ? null : _loadOpenClawReleaseOptions,
-              icon: _loadingReleaseOptions
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-            ),
-          ],
+          ),
         ),
-        const SizedBox(height: 6),
-        OpenClawReleaseSelector(
-          releases: availableReleases,
-          selectedRelease: canSelectVersions ? selectedRelease : null,
-          latestRelease: latestRelease,
-          enabled: !disableSelection && canSelectVersions,
-          onChanged: (release) {
-            setState(() => _selectedRelease = release);
-          },
-        ),
-        if (selectedRelease != null) ...[
-          const SizedBox(height: 8),
+        if (selectedRelease?.nodeRequirement != null) ...[
+          const SizedBox(height: 6),
           Text(
-            l10n.t('setupWizardSelectedVersionHint', {
-              'version': selectedRelease.version,
-              'size': selectedRelease.unpackedSizeLabel ??
-                  AppConstants.openClawEstimatedSize,
+            l10n.t('gatewayNodeRequirementHint', {
+              'requirement': selectedRelease!.nodeRequirement,
             }),
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-          if (selectedRelease.nodeRequirement != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              l10n.t('gatewayNodeRequirementHint', {
-                'requirement': selectedRelease.nodeRequirement,
-              }),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
         ],
       ],
     );

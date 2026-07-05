@@ -58,15 +58,9 @@ export npm_config_update_notifier=false
 export npm_config_foreground_scripts=true
 export npm_config_loglevel=notice
 export npm_config_cache=/tmp/npm-cache
-export npm_config_tmp=/tmp/npm-tmp
 export npm_config_registry=https://registry.npmmirror.com
-export npm_config_include=optional
-export npm_config_optional=true
 export npm_config_os=linux
 export npm_config_cpu=arm64
-export npm_config_arch=arm64
-export npm_config_platform=linux
-export npm_config_unsafe_perm=true
 export NODE_OPTIONS="${NODE_OPTIONS:---require /root/.openclaw/bionic-bypass.js}"
 export NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-/etc/ssl/certs/ca-certificates.crt}"
 export DEBIAN_FRONTEND=noninteractive
@@ -124,6 +118,42 @@ install_cli_package() {
   rm -rf "$previous_dir"
   rm -f "/usr/local/bin/$bin_name"
 }
+
+install_claude_package() {
+  target_dir="/opt/openclaw-cli/claude"
+  staging_dir="$target_dir.tmp"
+  previous_dir="$target_dir.prev"
+
+  rm -rf "$staging_dir" "$previous_dir"
+  mkdir -p "$staging_dir"
+
+  npm install \
+    --prefix "$staging_dir" \
+    --force \
+    --include=optional \
+    --os=linux \
+    --cpu=arm64 \
+    --libc=glibc \
+    @anthropic-ai/claude-code@latest \
+    @anthropic-ai/claude-code-linux-arm64@latest
+
+  if [ ! -x "$staging_dir/node_modules/@anthropic-ai/claude-code-linux-arm64/claude" ]; then
+    npm install \
+      --prefix "$staging_dir" \
+      --force \
+      --os=linux \
+      --cpu=arm64 \
+      --libc=glibc \
+      @anthropic-ai/claude-code-linux-arm64@latest
+  fi
+
+  if [ -d "$target_dir" ]; then
+    mv "$target_dir" "$previous_dir"
+  fi
+  mv "$staging_dir" "$target_dir"
+  rm -rf "$previous_dir"
+  rm -f /usr/local/bin/claude
+}
 ''';
 
   static const _codexInstallCommand = _commonNpmInstallPrefix +
@@ -147,20 +177,7 @@ echo ">>> CODEX_CLI_INSTALL_COMPLETE"
       r'''
 ensure_node_22
 echo ">>> Installing Claude Code from npm..."
-install_cli_package claude @anthropic-ai/claude-code claude
-echo ">>> Installing Claude Code musl arm64 runtime..."
-npm install \
-  --prefix /opt/openclaw-cli/claude \
-  --include=optional \
-  --os=linux \
-  --cpu=arm64 \
-  --libc=musl \
-  @anthropic-ai/claude-code-linux-arm64-musl@latest
-if [ ! -e /lib/ld-musl-aarch64.so.1 ] && command -v apt-get >/dev/null 2>&1; then
-  echo ">>> Installing musl loader for Claude Code..."
-  apt-get update
-  apt-get install -y --no-install-recommends musl
-fi
+install_claude_package
 cat > /usr/local/bin/claude <<'OPENCLAW_CLAUDE_WRAPPER'
 #!/bin/sh
 export NODE_OPTIONS="${NODE_OPTIONS:---require /root/.openclaw/bionic-bypass.js}"
@@ -170,14 +187,14 @@ node_modules=/opt/openclaw-cli/claude/node_modules
 main="$node_modules/@anthropic-ai/claude-code"
 musl="$node_modules/@anthropic-ai/claude-code-linux-arm64-musl/claude"
 glibc="$node_modules/@anthropic-ai/claude-code-linux-arm64/claude"
+if [ -x "$glibc" ]; then
+  exec "$glibc" "$@"
+fi
 if [ -x "$musl" ] && [ -e /lib/ld-musl-aarch64.so.1 ]; then
   exec "$musl" "$@"
 fi
 if [ -x "$main/bin/claude.exe" ]; then
   exec "$main/bin/claude.exe" "$@"
-fi
-if [ -x "$glibc" ]; then
-  exec "$glibc" "$@"
 fi
 echo "Claude Code native binary is missing. Reinstall Claude from the CLI tools page." >&2
 exit 127

@@ -8,6 +8,7 @@ import 'providers/setup_provider.dart';
 import 'providers/gateway_provider.dart';
 import 'providers/node_provider.dart';
 import 'screens/splash_screen.dart';
+import 'widgets/responsive_layout.dart';
 
 /// Centralized color palette for the entire app.
 class AppColors {
@@ -58,6 +59,13 @@ class OpenClawApp extends StatelessWidget {
       child: Consumer<LocaleProvider>(
         builder: (context, localeProvider, _) => MaterialApp(
           debugShowCheckedModeBanner: false,
+          builder: (context, child) {
+            final mediaQuery = MediaQuery.of(context);
+            return MediaQuery(
+              data: ResponsiveLayout.clampedMediaQuery(mediaQuery),
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
           onGenerateTitle: (context) => context.l10n.t('appName'),
           locale: localeProvider.locale,
           localeListResolutionCallback: (deviceLocales, supportedLocales) {

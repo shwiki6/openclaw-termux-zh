@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/cli_api_config.dart';
@@ -41,6 +42,46 @@ class CliApiConfigService {
       // Rootfs may not exist yet during first-run preconfiguration.
       // The setup flow calls regenerateRuntimeFiles() again after extraction.
     }
+  }
+
+  static Future<List<String>> fetchModels({
+    required String toolId,
+    required String baseUrl,
+    required String apiKey,
+  }) async {
+    final endpoint = _modelsEndpoint(baseUrl);
+    if (endpoint == null) {
+      throw Exception('请先填写 API 地址');
+    }
+    if (apiKey.trim().isEmpty) {
+      throw Exception('请先填写 API Key');
+    }
+
+    final headers = <String, String>{
+      'Accept': 'application/json',
+      if (toolId == 'claude') ...{
+        'x-api-key': apiKey.trim(),
+        'anthropic-version': '2023-06-01',
+      } else
+        'Authorization': 'Bearer ${apiKey.trim()}',
+    };
+    if (toolId == 'claude') {
+      headers['Authorization'] = 'Bearer ${apiKey.trim()}';
+    }
+
+    final response = await http
+        .get(endpoint, headers: headers)
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('模型列表获取失败：HTTP ${response.statusCode}');
+    }
+
+    final decoded = jsonDecode(response.body);
+    final models = _extractModelIds(decoded).toSet().toList()..sort();
+    if (models.isEmpty) {
+      throw Exception('模型列表为空或响应格式不支持');
+    }
+    return models;
   }
 
   static Future<void> regenerateRuntimeFiles({
@@ -145,7 +186,7 @@ class CliApiConfigService {
 
     if (claude.apiKey.trim().isNotEmpty) {
       lines.add('export ANTHROPIC_API_KEY=${_shQuote(claude.apiKey.trim())}');
-      lines.add('export ANTHROPIC_AUTH_TOKEN=${_shQuote(claude.apiKey.trim())}');
+      lines.add('unset ANTHROPIC_AUTH_TOKEN');
     }
     if (claude.baseUrl.trim().isNotEmpty) {
       lines.add('export ANTHROPIC_BASE_URL=${_shQuote(claude.baseUrl.trim())}');
@@ -185,7 +226,7 @@ class CliApiConfigService {
         ..add('name = "OpenClaw Custom API"')
         ..add('base_url = ${_tomlString(baseUrl)}')
         ..add('env_key = "OPENAI_API_KEY"')
-        ..add('wire_api = "chat"');
+        ..add('wire_api = "responses"');
     }
 
     if (lines.isEmpty) {
@@ -201,5 +242,56 @@ class CliApiConfigService {
 
   static String _tomlString(String value) {
     return jsonEncode(value);
+  }
+
+  static Uri? _modelsEndpoint(String baseUrl) {
+    final trimmed = baseUrl.trim();
+    if (trimmed.isEmpty) return null;
+    final normalized = trimmed.endsWith('/')
+        ? trimmed.substring(0, trimmed.length - 1)
+        : trimmed;
+    final uri = Uri.tryParse(normalized);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) return null;
+
+    final segments = uri.pathSegments.where((item) => item.isNotEmpty).toList();
+    if (segments.isEmpty) {
+      return uri.replace(pathSegments: ['v1', 'models']);
+    }
+    if (segments.last == 'models') {
+      return uri;
+    }
+    return uri.replace(pathSegments: [...segments, 'models']);
+  }
+
+  static List<String> _extractModelIds(dynamic decoded) {
+    final result = <String>[];
+    void addModel(dynamic item) {
+      if (item is String && item.trim().isNotEmpty) {
+        result.add(item.trim());
+        return;
+      }
+      if (item is Map) {
+        final id = item['id'] ?? item['name'] ?? item['model'];
+        if (id is String && id.trim().isNotEmpty) {
+          result.add(id.trim());
+        }
+      }
+    }
+
+    if (decoded is Map) {
+      final data = decoded['data'] ?? decoded['models'];
+      if (data is List) {
+        for (final item in data) {
+          addModel(item);
+        }
+      } else {
+        addModel(data);
+      }
+    } else if (decoded is List) {
+      for (final item in decoded) {
+        addModel(item);
+      }
+    }
+    return result;
   }
 }

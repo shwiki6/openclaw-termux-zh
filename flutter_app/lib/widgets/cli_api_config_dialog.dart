@@ -33,8 +33,10 @@ class _CliApiConfigDialogState extends State<CliApiConfigDialog> {
   final _modelController = TextEditingController();
   final _mappingController = TextEditingController();
   String _reasoningEffort = '';
+  List<String> _availableModels = const [];
   bool _loading = true;
   bool _saving = false;
+  bool _loadingModels = false;
   String? _error;
 
   bool get _isCodex => widget.tool.id == 'codex';
@@ -103,6 +105,35 @@ class _CliApiConfigDialogState extends State<CliApiConfigDialog> {
     }
   }
 
+  Future<void> _fetchModels() async {
+    setState(() {
+      _loadingModels = true;
+      _error = null;
+    });
+
+    try {
+      final models = await CliApiConfigService.fetchModels(
+        toolId: widget.tool.id,
+        baseUrl: _baseUrlController.text,
+        apiKey: _apiKeyController.text,
+      );
+      if (!mounted) return;
+      setState(() {
+        _availableModels = models;
+        _loadingModels = false;
+        if (_modelController.text.trim().isEmpty && models.isNotEmpty) {
+          _modelController.text = models.first;
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.toString();
+        _loadingModels = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -160,6 +191,62 @@ class _CliApiConfigDialogState extends State<CliApiConfigDialog> {
                         border: const OutlineInputBorder(),
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _availableModels.isEmpty
+                                ? '可从当前 API 获取模型列表后选择。'
+                                : '已获取 ${_availableModels.length} 个模型。',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed:
+                              _loadingModels || _saving ? null : _fetchModels,
+                          icon: _loadingModels
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.cloud_download_outlined),
+                          label: Text(_loadingModels ? '获取中...' : '获取模型'),
+                        ),
+                      ],
+                    ),
+                    if (_availableModels.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        initialValue:
+                            _availableModels.contains(_modelController.text)
+                                ? _modelController.text
+                                : null,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: '选择模型',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: [
+                          for (final model in _availableModels)
+                            DropdownMenuItem(
+                              value: model,
+                              child: Text(
+                                model,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() => _modelController.text = value);
+                        },
+                      ),
+                    ],
                     if (_isCodex) ...[
                       const SizedBox(height: 12),
                       TextField(
@@ -174,6 +261,7 @@ class _CliApiConfigDialogState extends State<CliApiConfigDialog> {
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       initialValue: _reasoningEffort,
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: '推理强度（可选）',
                         border: OutlineInputBorder(),
@@ -215,11 +303,13 @@ class _CliApiConfigDialogState extends State<CliApiConfigDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+          onPressed: _saving || _loadingModels
+              ? null
+              : () => Navigator.of(context).pop(false),
           child: const Text('取消'),
         ),
         FilledButton(
-          onPressed: _loading || _saving ? null : _save,
+          onPressed: _loading || _saving || _loadingModels ? null : _save,
           child: Text(_saving ? '保存中...' : '保存'),
         ),
       ],

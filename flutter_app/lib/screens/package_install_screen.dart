@@ -8,6 +8,7 @@ import '../services/native_bridge.dart';
 import '../services/screenshot_service.dart';
 import '../services/terminal_output_buffer.dart';
 import '../services/terminal_service.dart';
+import '../widgets/responsive_layout.dart';
 import '../widgets/terminal_toolbar.dart';
 
 /// Runs an install or uninstall command for an [OptionalPackage] inside proot.
@@ -198,10 +199,10 @@ class _PackageInstallScreenState extends State<PackageInstallScreen> {
       body: Column(
         children: [
           if (_loading)
-            const Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+            Expanded(
+              child: ResponsiveLayout.scrollableCenter(
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     CircularProgressIndicator(),
                     SizedBox(height: 16),
@@ -212,40 +213,37 @@ class _PackageInstallScreenState extends State<PackageInstallScreen> {
             )
           else if (_error != null)
             Expanded(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        size: 48,
+              child: ResponsiveLayout.scrollableCenter(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
                         color: Theme.of(context).colorScheme.error,
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _error!,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            _loading = true;
-                            _error = null;
-                            _finished = false;
-                          });
-                          _startProcess();
-                        },
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Retry'),
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _loading = true;
+                          _error = null;
+                          _finished = false;
+                        });
+                        _startProcess();
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
                 ),
               ),
             )

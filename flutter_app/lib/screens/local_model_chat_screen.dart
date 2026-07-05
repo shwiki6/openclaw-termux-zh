@@ -9,6 +9,7 @@ import '../l10n/app_localizations.dart';
 import '../models/custom_provider_preset.dart';
 import '../services/local_model_chat_service.dart';
 import '../services/local_model_service.dart';
+import '../widgets/responsive_layout.dart';
 import 'local_model_chat_settings_screen.dart';
 
 class LocalModelChatScreen extends StatefulWidget {
@@ -1180,11 +1181,11 @@ class _LocalModelChatScreenState extends State<LocalModelChatScreen> {
             top: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Column(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isNarrow =
+                      constraints.maxWidth < ResponsiveLayout.compactWidth;
+                  final input = Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1219,28 +1220,49 @@ class _LocalModelChatScreenState extends State<LocalModelChatScreen> {
                           ),
                         ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  if (_sending)
-                    OutlinedButton(
-                      onPressed: _stopMessageGeneration,
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(56, 56),
-                        padding: EdgeInsets.zero,
-                      ),
-                      child: const Icon(Icons.stop_rounded),
-                    )
-                  else
-                    FilledButton(
-                      onPressed: _composerEnabled ? _sendMessage : null,
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(56, 56),
-                        padding: EdgeInsets.zero,
-                      ),
-                      child: const Icon(Icons.send_rounded),
-                    ),
-                ],
+                    );
+                  final actionButton = _sending
+                      ? OutlinedButton(
+                          onPressed: _stopMessageGeneration,
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(56, 56),
+                            padding: EdgeInsets.zero,
+                          ),
+                          child: const Icon(Icons.stop_rounded),
+                        )
+                      : FilledButton(
+                          onPressed: _composerEnabled ? _sendMessage : null,
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(56, 56),
+                            padding: EdgeInsets.zero,
+                          ),
+                          child: const Icon(Icons.send_rounded),
+                        );
+
+                  if (isNarrow) {
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        input,
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: actionButton,
+                        ),
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(child: input),
+                      const SizedBox(width: 10),
+                      actionButton,
+                    ],
+                  );
+                },
               ),
             ),
           ),
