@@ -1,6 +1,6 @@
 class AppConstants {
   static const String appName = '次元虾';
-  static const String version = '2.0.7';
+  static const String version = '2.0.8';
   static const String packageName = 'com.openclaw.cyx';
 
   /// Matches ANSI escape sequences (e.g. color codes in terminal output).

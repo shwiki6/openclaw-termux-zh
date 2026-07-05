@@ -28,6 +28,8 @@ class TerminalScreen extends StatefulWidget {
 class _TerminalScreenState extends State<TerminalScreen> {
   late final PersistentTerminalSession _session;
   late final TerminalController _controller;
+  final _inputController = TextEditingController();
+  final _inputFocusNode = FocusNode();
   final _ctrlNotifier = ValueNotifier<bool>(false);
   final _altNotifier = ValueNotifier<bool>(false);
   final _screenshotKey = GlobalKey();
@@ -106,6 +108,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
   void dispose() {
     _session.terminal.onOutput = _session.writeInput;
     _session.removeListener(_onSessionChanged);
+    _inputController.dispose();
+    _inputFocusNode.dispose();
     _ctrlNotifier.dispose();
     _altNotifier.dispose();
     _controller.dispose();
@@ -128,6 +132,14 @@ class _TerminalScreenState extends State<TerminalScreen> {
     }
     final text = sb.toString().trim();
     return text.isEmpty ? null : text;
+  }
+
+  String _getAllText() {
+    final sb = StringBuffer();
+    for (final line in _session.terminal.buffer.lines) {
+      sb.writeln(line.getText().trimRight());
+    }
+    return sb.toString().trimRight();
   }
 
   /// Extract a clean URL from selected text by stripping box-drawing
@@ -154,7 +166,15 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   void _copySelection() {
     final text = _getSelectedText();
-    if (text == null) return;
+    if (text == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No terminal text selected'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+      return;
+    }
 
     Clipboard.setData(ClipboardData(text: text));
 
@@ -186,6 +206,18 @@ class _TerminalScreenState extends State<TerminalScreen> {
     }
   }
 
+  void _copyAll() {
+    final text = _getAllText();
+    if (text.trim().isEmpty) return;
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Terminal output copied'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
   void _openSelection() {
     final text = _getSelectedText();
     if (text == null) return;
@@ -209,8 +241,20 @@ class _TerminalScreenState extends State<TerminalScreen> {
   Future<void> _paste() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     if (data?.text != null && data!.text!.isNotEmpty) {
-      _session.writeInput(data.text!);
+      final current = _inputController.text;
+      _inputController.text = '$current${data.text!}';
+      _inputController.selection = TextSelection.collapsed(
+        offset: _inputController.text.length,
+      );
+      _inputFocusNode.requestFocus();
     }
+  }
+
+  void _sendInputLine() {
+    final text = _inputController.text;
+    _session.writeInput('$text\r');
+    _inputController.clear();
+    _inputFocusNode.requestFocus();
   }
 
   Future<void> _takeScreenshot() async {
@@ -319,8 +363,13 @@ class _TerminalScreenState extends State<TerminalScreen> {
       ),
       IconButton(
         icon: const Icon(Icons.copy),
-        tooltip: 'Copy',
+        tooltip: 'Copy selection',
         onPressed: _copySelection,
+      ),
+      IconButton(
+        icon: const Icon(Icons.select_all),
+        tooltip: 'Copy all',
+        onPressed: _copyAll,
       ),
       IconButton(
         icon: const Icon(Icons.open_in_browser),
@@ -357,6 +406,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
           case 'copy':
             _copySelection();
             break;
+          case 'copyAll':
+            _copyAll();
+            break;
           case 'open':
             _openSelection();
             break;
@@ -373,7 +425,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
       },
       itemBuilder: (context) => const [
         PopupMenuItem(value: 'screenshot', child: Text('Screenshot')),
-        PopupMenuItem(value: 'copy', child: Text('Copy')),
+        PopupMenuItem(value: 'copy', child: Text('Copy selection')),
+        PopupMenuItem(value: 'copyAll', child: Text('Copy all')),
         PopupMenuItem(value: 'open', child: Text('Open URL')),
         PopupMenuItem(value: 'paste', child: Text('Paste')),
         PopupMenuItem(value: 'restart', child: Text('Restart')),
@@ -455,7 +508,60 @@ class _TerminalScreenState extends State<TerminalScreen> {
           ctrlNotifier: _ctrlNotifier,
           altNotifier: _altNotifier,
         ),
+        _buildInputBar(),
       ],
+    );
+  }
+
+  Widget _buildInputBar() {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final fillColor = isDark ? const Color(0xFF151923) : const Color(0xFFF3F4F6);
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        color: theme.colorScheme.surface,
+        padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _inputController,
+                focusNode: _inputFocusNode,
+                minLines: 1,
+                maxLines: 4,
+                textInputAction: TextInputAction.send,
+                keyboardType: TextInputType.text,
+                enableSuggestions: true,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  isDense: true,
+                  filled: true,
+                  fillColor: fillColor,
+                  hintText: '输入命令或消息，点发送写入终端',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                ),
+                onSubmitted: (_) => _sendInputLine(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filled(
+              tooltip: 'Send',
+              onPressed: _session.isRunning ? _sendInputLine : null,
+              icon: const Icon(Icons.send),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

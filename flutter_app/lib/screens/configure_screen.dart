@@ -83,6 +83,7 @@ class _ConfigureScreenState extends State<ConfigureScreen> {
         config,
         columns: _terminal.viewWidth,
         rows: _terminal.viewHeight,
+        mode: TerminalProotMode.compatibility,
       );
       final bonjourEnabled = await ProviderConfigService.readBonjourEnabled();
       const configureCommand = 'openclaw configure';

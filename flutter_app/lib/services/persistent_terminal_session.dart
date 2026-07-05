@@ -68,6 +68,7 @@ class PersistentTerminalSession extends ChangeNotifier {
         config,
         columns: columns,
         rows: rows,
+        mode: TerminalProotMode.compatibility,
       );
       if (generation != _generation || closed) {
         loading = false;
