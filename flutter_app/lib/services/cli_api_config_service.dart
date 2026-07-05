@@ -16,6 +16,7 @@ class CliApiConfigService {
   static const _codexProxyBaseUrl = 'http://127.0.0.1:8787/v1';
   static const _claudeProxyJsPath = '/root/.openclaw/claude-proxy.cjs';
   static const _claudeProxyEnvPath = '/root/.openclaw/claude-proxy.env';
+  static const _claudeLauncherPath = '/root/.openclaw/claude-launcher.sh';
   static const _claudeSettingsPath = '/root/.claude/settings.json';
   static const _claudeProxyBaseUrl = 'http://127.0.0.1:8788';
   static const _prefsKey = 'cli_api_config_json';
@@ -129,6 +130,10 @@ class CliApiConfigService {
       _buildClaudeProxyEnv(claude),
     );
     await NativeBridge.writeRootfsFile(
+      _claudeLauncherPath,
+      _buildClaudeLauncherSh(),
+    );
+    await NativeBridge.writeRootfsFile(
       _claudeSettingsPath,
       _buildClaudeSettingsJson(claude),
     );
@@ -138,6 +143,7 @@ class CliApiConfigService {
       'chmod 0600 $_codexProxyEnvPath 2>/dev/null || true; '
       'chmod 0755 $_claudeProxyJsPath 2>/dev/null || true; '
       'chmod 0600 $_claudeProxyEnvPath 2>/dev/null || true; '
+      'chmod 0755 $_claudeLauncherPath 2>/dev/null || true; '
       'chmod 0600 $_claudeSettingsPath 2>/dev/null || true',
       timeout: 10,
     );
@@ -412,6 +418,96 @@ class CliApiConfigService {
       'skipDangerousModePermissionPrompt': true,
     };
     return '${const JsonEncoder.withIndent('  ').convert(settings)}\n';
+  }
+
+  static String _buildClaudeLauncherSh() {
+    return r'''#!/bin/sh
+export NODE_OPTIONS="${NODE_OPTIONS:---require /root/.openclaw/bionic-bypass.js}"
+export NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-/etc/ssl/certs/ca-certificates.crt}"
+
+[ -r /root/.openclaw/cli-env.sh ] && . /root/.openclaw/cli-env.sh
+
+openclaw_env_value() {
+  key="$1"
+  file="$2"
+  sed -n "s/^${key}=//p" "$file" 2>/dev/null \
+    | tail -n 1 \
+    | sed "s/^'//;s/'$//;s/^\"//;s/\"$//"
+}
+
+proxy_env=/root/.openclaw/claude-proxy.env
+proxy_upstream=""
+if [ -r "$proxy_env" ]; then
+  proxy_upstream="$(openclaw_env_value OPENCLAW_CLAUDE_PROXY_UPSTREAM "$proxy_env")"
+fi
+
+if [ -n "$proxy_upstream" ]; then
+  export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-dummy}"
+  export ANTHROPIC_BASE_URL="http://127.0.0.1:8788"
+  export CLAUDE_CODE_BASE_URL="http://127.0.0.1:8788"
+  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+  export CLAUDE_CODE_DISABLE_AUTO_UPDATE=1
+  export API_TIMEOUT_MS="${API_TIMEOUT_MS:-3000000}"
+  export OTEL_SDK_DISABLED=true
+  unset ANTHROPIC_AUTH_TOKEN
+
+  proxy_model="$(openclaw_env_value OPENCLAW_CLAUDE_PROXY_MODEL "$proxy_env")"
+  if [ -n "$proxy_model" ]; then
+    export ANTHROPIC_MODEL="$proxy_model"
+    export CLAUDE_CODE_MODEL="$proxy_model"
+    export ANTHROPIC_SMALL_FAST_MODEL="$proxy_model"
+    export ANTHROPIC_DEFAULT_SONNET_MODEL="$proxy_model"
+    export ANTHROPIC_DEFAULT_OPUS_MODEL="$proxy_model"
+    export ANTHROPIC_DEFAULT_HAIKU_MODEL="$proxy_model"
+  fi
+
+  proxy_healthy=false
+  if node -e 'fetch("http://127.0.0.1:8788/health", {signal: AbortSignal.timeout(1000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))' >/dev/null 2>&1; then
+    proxy_healthy=true
+  fi
+  if [ "$proxy_healthy" != true ] && [ -r /root/.openclaw/claude-proxy.cjs ]; then
+    nohup node /root/.openclaw/claude-proxy.cjs >/tmp/openclaw-claude-proxy.log 2>&1 &
+    sleep 0.5
+  fi
+else
+  case "${1:-}" in
+    --version|-v|version)
+      ;;
+    *)
+      cat >&2 <<'OPENCLAW_CLAUDE_CONFIG_REQUIRED'
+Claude Code 未配置可用的本地代理 API，已阻止直接连接官方 api.anthropic.com。
+
+国内网络环境请先在「CLI Tools -> Claude Code -> 配置」中填写：
+1. API 地址：第三方 Anthropic 兼容地址，或 OpenAI 兼容地址
+2. API Key
+3. 模型名
+4. 接口协议：OpenAI 兼容接口请选择「OpenAI 兼容转 Anthropic」
+
+保存后回到 CLI Tools 页面刷新，再点击打开 Claude。
+OPENCLAW_CLAUDE_CONFIG_REQUIRED
+      exit 2
+      ;;
+  esac
+fi
+
+node_modules=/opt/openclaw-cli/claude/node_modules
+main="$node_modules/@anthropic-ai/claude-code"
+musl="$node_modules/@anthropic-ai/claude-code-linux-arm64-musl/claude"
+glibc="$node_modules/@anthropic-ai/claude-code-linux-arm64/claude"
+if [ -f "$glibc" ]; then
+  chmod 0755 "$glibc" 2>/dev/null || true
+  exec "$glibc" "$@"
+fi
+if [ -f "$musl" ] && [ -e /lib/ld-musl-aarch64.so.1 ]; then
+  chmod 0755 "$musl" 2>/dev/null || true
+  exec "$musl" "$@"
+fi
+if [ -x "$main/bin/claude.exe" ]; then
+  exec "$main/bin/claude.exe" "$@"
+fi
+echo "Claude Code native binary is missing. Reinstall Claude from the CLI tools page." >&2
+exit 127
+''';
   }
 
   static String _trimTrailingSlash(String value) {

@@ -39,7 +39,7 @@ class CliToolService {
     icon: Icons.psychology,
     color: Colors.deepOrange,
     installCommand: _claudeInstallCommand,
-    launchCommand: 'exec /usr/local/bin/claude',
+    launchCommand: 'exec /root/.openclaw/claude-launcher.sh',
     versionCommand: '/usr/local/bin/claude --version',
   );
 
@@ -219,6 +219,9 @@ cat > /usr/local/bin/claude <<'OPENCLAW_CLAUDE_WRAPPER'
 #!/bin/sh
 export NODE_OPTIONS="${NODE_OPTIONS:---require /root/.openclaw/bionic-bypass.js}"
 export NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-/etc/ssl/certs/ca-certificates.crt}"
+if [ -x /root/.openclaw/claude-launcher.sh ]; then
+  exec /root/.openclaw/claude-launcher.sh "$@"
+fi
 [ -r /root/.openclaw/cli-env.sh ] && . /root/.openclaw/cli-env.sh
 if [ -r /root/.openclaw/claude-proxy.env ]; then
   proxy_healthy=false
