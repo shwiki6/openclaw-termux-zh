@@ -96,11 +96,15 @@ fetch_for_abi() {
         chmod 755 "$out_dir/libprootloader.so"
     fi
 
-    # Copy loader32 (for 32-bit compat)
+    # Copy loader32 (for 32-bit compat). Termux 32-bit packages only ship
+    # "loader"; for armeabi-v7a that file is already the 32-bit loader.
     local loader32
     loader32=$(find "$proot_dir" -name "loader32" -path "*/proot/*" -type f | head -1)
     if [ -n "$loader32" ]; then
         cp "$loader32" "$out_dir/libprootloader32.so"
+        chmod 755 "$out_dir/libprootloader32.so"
+    elif [ "$jni_abi" = "armeabi-v7a" ] && [ -n "$loader" ]; then
+        cp "$loader" "$out_dir/libprootloader32.so"
         chmod 755 "$out_dir/libprootloader32.so"
     fi
 
@@ -118,6 +122,13 @@ fetch_for_abi() {
     else
         echo "  [$jni_abi] WARN: libtalloc not found"
     fi
+
+    for required in libproot.so libprootloader.so libprootloader32.so libtalloc.so; do
+        if [ ! -s "$out_dir/$required" ]; then
+            echo "  [$jni_abi] ERROR: missing required native binary: $required"
+            return 1
+        fi
+    done
 
     echo "  [$jni_abi] OK — $(ls "$out_dir"/ | tr '\n' ' ')"
 }

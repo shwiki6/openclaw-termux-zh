@@ -199,8 +199,13 @@ def need_fetch_proot() -> bool:
     required_files = [
         jni_lib_root / "arm64-v8a" / "libproot.so",
         jni_lib_root / "arm64-v8a" / "libprootloader.so",
+        jni_lib_root / "arm64-v8a" / "libprootloader32.so",
         jni_lib_root / "armeabi-v7a" / "libproot.so",
+        jni_lib_root / "armeabi-v7a" / "libprootloader.so",
+        jni_lib_root / "armeabi-v7a" / "libprootloader32.so",
         jni_lib_root / "x86_64" / "libproot.so",
+        jni_lib_root / "x86_64" / "libprootloader.so",
+        jni_lib_root / "x86_64" / "libprootloader32.so",
     ]
     return any(not file.exists() for file in required_files)
 

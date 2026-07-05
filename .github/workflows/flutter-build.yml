@@ -179,7 +179,7 @@ jobs:
           set -euo pipefail
           echo "Checking jniLibs contents..."
           for abi in arm64-v8a armeabi-v7a x86_64; do
-            for lib in libproot.so libprootloader.so; do
+            for lib in libproot.so libprootloader.so libprootloader32.so libtalloc.so; do
               FILE="flutter_app/android/app/src/main/jniLibs/${abi}/${lib}"
               if [ ! -f "$FILE" ]; then
                 echo "ERROR: Missing $FILE"
@@ -214,6 +214,27 @@ jobs:
       - name: Build AAB
         working-directory: flutter_app
         run: flutter build appbundle --release
+
+      - name: Verify APK native PRoot binaries
+        run: |
+          set -euo pipefail
+          check_apk() {
+            local apk="$1"
+            local abi="$2"
+            for lib in libproot.so libprootloader.so libprootloader32.so libtalloc.so; do
+              if ! unzip -l "$apk" "lib/${abi}/${lib}" | grep -q "lib/${abi}/${lib}"; then
+                echo "ERROR: Missing lib/${abi}/${lib} in $apk"
+                exit 1
+              fi
+            done
+          }
+
+          check_apk flutter_app/build/app/outputs/flutter-apk/app-release.apk arm64-v8a
+          check_apk flutter_app/build/app/outputs/flutter-apk/app-release.apk armeabi-v7a
+          check_apk flutter_app/build/app/outputs/flutter-apk/app-release.apk x86_64
+          check_apk flutter_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk arm64-v8a
+          check_apk flutter_app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk armeabi-v7a
+          check_apk flutter_app/build/app/outputs/flutter-apk/app-x86_64-release.apk x86_64
 
       - name: Collect artifacts
         id: collect
