@@ -1,4 +1,4 @@
-package com.openclaw.xlx
+package com.openclaw.cyx
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.Manifest
@@ -36,9 +37,9 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.openclaw.xlx/native"
-    private val EVENT_CHANNEL = "com.openclaw.xlx/gateway_logs"
-    private val SETUP_LOG_EVENT_CHANNEL = "com.openclaw.xlx/setup_logs"
+    private val CHANNEL = "com.openclaw.cyx/native"
+    private val EVENT_CHANNEL = "com.openclaw.cyx/gateway_logs"
+    private val SETUP_LOG_EVENT_CHANNEL = "com.openclaw.cyx/setup_logs"
 
     private lateinit var bootstrapManager: BootstrapManager
     private lateinit var processManager: ProcessManager
@@ -57,6 +58,7 @@ class MainActivity : FlutterActivity() {
     private var pendingWorkspaceBackupOpenClawVersion: String? = null
     private var pendingApkInstallResult: MethodChannel.Result? = null
     private var pendingApkInstallPath: String? = null
+    private var pendingStoragePermissionResult: MethodChannel.Result? = null
     private var setupDone = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -705,13 +707,25 @@ class MainActivity : FlutterActivity() {
                 "requestStoragePermission" -> {
                     try {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            // Android 11+: MANAGE_EXTERNAL_STORAGE
-                            if (!Environment.isExternalStorageManager()) {
-                                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                                startActivity(intent)
+                            if (Environment.isExternalStorageManager()) {
+                                result.success(true)
+                                return@setMethodCallHandler
+                            }
+
+                            pendingStoragePermissionResult = result
+                            val appIntent = Intent(
+                                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                Uri.parse("package:$packageName")
+                            )
+                            try {
+                                startActivityForResult(appIntent, STORAGE_PERMISSION_REQUEST)
+                            } catch (_: ActivityNotFoundException) {
+                                val fallbackIntent =
+                                    Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                startActivityForResult(fallbackIntent, STORAGE_PERMISSION_REQUEST)
                             }
                         } else {
-                            // Android 10 and below: READ/WRITE_EXTERNAL_STORAGE
+                            pendingStoragePermissionResult = result
                             ActivityCompat.requestPermissions(
                                 this,
                                 arrayOf(
@@ -721,18 +735,13 @@ class MainActivity : FlutterActivity() {
                                 STORAGE_PERMISSION_REQUEST
                             )
                         }
-                        result.success(true)
                     } catch (e: Exception) {
+                        pendingStoragePermissionResult = null
                         result.error("STORAGE_ERROR", e.message, null)
                     }
                 }
                 "hasStoragePermission" -> {
-                    val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        Environment.isExternalStorageManager()
-                    } else {
-                        ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-                    }
-                    result.success(hasPermission)
+                    result.success(hasSharedStoragePermission())
                 }
                 "getExternalStoragePath" -> {
                     result.success(Environment.getExternalStorageDirectory().absolutePath)
@@ -1018,8 +1027,37 @@ class MainActivity : FlutterActivity() {
         startActivity(installIntent)
     }
 
+    private fun hasSharedStoragePermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun completeStoragePermissionRequest() {
+        val pendingResult = pendingStoragePermissionResult ?: return
+        pendingStoragePermissionResult = null
+        pendingResult.success(hasSharedStoragePermission())
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            completeStoragePermissionRequest()
+        }
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == STORAGE_PERMISSION_REQUEST) {
+            completeStoragePermissionRequest()
+            return
+        }
+
         if (requestCode == INSTALL_UNKNOWN_APP_SOURCES_REQUEST) {
             val pendingResult = pendingApkInstallResult
             val pendingPath = pendingApkInstallPath
@@ -1279,6 +1317,17 @@ class MainActivity : FlutterActivity() {
                 pendingResult.success(null)
             }
             return
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == STORAGE_PERMISSION_REQUEST) {
+            completeStoragePermissionRequest()
         }
     }
 

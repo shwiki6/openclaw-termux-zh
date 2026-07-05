@@ -1,5 +1,5 @@
 const Map<String, String> appStringsJa = {
-  'appName': '小龙虾',
+  'appName': '次元虾',
   'language': '言語',
   'languageSystem': 'システム既定',
   'languageEnglish': '英語',
@@ -184,6 +184,17 @@ const Map<String, String> appStringsJa = {
   'gatewayVersionUpdatable': '更新可能',
   'gatewayVersionCurrent': '最新です',
   'gatewayNodeRequirementHint': 'Node.js {requirement} が必要です',
+  'gatewaySelectVersion': 'バージョンを選択',
+  'openClawReleaseListLimitHint':
+      '最新 10 件の安定版のみを表示します。展開すると変更内容を確認できます。',
+  'openClawReleaseListEmpty': '利用可能なバージョンはありません',
+  'openClawReleaseNotesTitle': '変更内容',
+  'openClawReleaseNotesLoading': 'このバージョンの変更内容を読み込み中...',
+  'openClawReleaseNotesUnavailable':
+      'このバージョンは npm registry にリリースノートを提供していません。',
+  'openClawReleaseSummary': '{size} · 公開日 {date}',
+  'openClawReleasePackageSize': '展開後サイズ：{size}',
+  'openClawReleasePublishedAt': '公開日：{date}',
   'gatewayStatusRunning': '稼働中',
   'gatewayStatusStarting': '起動中',
   'gatewayStatusStopping': '停止中',

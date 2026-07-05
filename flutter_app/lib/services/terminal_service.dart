@@ -171,7 +171,6 @@ class TerminalService {
       'npm_config_cpu=arm64',
       'npm_config_arch=arm64',
       'npm_config_platform=linux',
-      'npm_config_libc=glibc',
       'COLUMNS=$columns',
       'LINES=$rows',
       'NODE_OPTIONS=--require /root/.openclaw/bionic-bypass.js',

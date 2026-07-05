@@ -257,9 +257,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       return;
                     }
 
-                    await NativeBridge.requestStoragePermission();
-                    // Refresh after returning from permission screen
-                    final granted = await NativeBridge.hasStoragePermission();
+                    bool granted;
+                    try {
+                      granted = await NativeBridge.requestStoragePermission();
+                    } catch (_) {
+                      granted = await NativeBridge.hasStoragePermission();
+                    }
+                    if (!mounted) return;
                     setState(() => _storageGranted = granted);
                   },
                 ),

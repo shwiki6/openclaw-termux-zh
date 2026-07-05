@@ -2,17 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../constants.dart';
 import '../l10n/app_localizations.dart';
+import '../models/cli_tool.dart';
 import '../models/openclaw_install_options.dart';
 import '../models/setup_state.dart';
 import '../providers/setup_provider.dart';
 import '../services/backup_service.dart';
 import '../services/bundled_sample_config_service.dart';
+import '../services/cli_api_config_service.dart';
+import '../services/cli_tool_service.dart';
 import '../services/install_status_message_formatter.dart';
 import '../services/native_bridge.dart';
 import '../services/openclaw_version_service.dart';
 import '../services/preferences_service.dart';
 import '../services/provider_config_service.dart';
 import '../services/snapshot_service.dart';
+import '../widgets/cli_api_config_dialog.dart';
+import '../widgets/openclaw_release_selector.dart';
 import '../widgets/progress_step.dart';
 import 'dashboard_screen.dart';
 import 'onboarding_screen.dart';
@@ -52,12 +57,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   String? _selectedUbuntuRootfsArchiveName;
   String? _selectedNodeArchivePath;
   String? _selectedNodeArchiveName;
+  bool _hasCliApiConfig = false;
 
   @override
   void initState() {
     super.initState();
     _resolvingExistingSetupState = widget.resumeCompletionChoice;
     _loadOpenClawReleaseOptions();
+    _loadCliApiConfigStatus();
     if (widget.resumeCompletionChoice) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _restoreCompletedSetupState();
@@ -220,6 +227,11 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       return;
     }
 
+    try {
+      await CliApiConfigService.regenerateRuntimeFiles();
+    } catch (_) {
+      // CLI config can be applied later from the CLI tools page.
+    }
     await _setPendingSetupChoice(true);
   }
 
@@ -286,6 +298,14 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       (_selectedUbuntuRootfsArchivePath ?? '').trim().isNotEmpty ||
       (_selectedNodeArchivePath ?? '').trim().isNotEmpty;
 
+  Future<void> _loadCliApiConfigStatus() async {
+    final configs = await CliApiConfigService.loadAll();
+    if (!mounted) return;
+    setState(() {
+      _hasCliApiConfig = configs.values.any((config) => config.isConfigured);
+    });
+  }
+
   Future<void> _openBootstrapResourceConfig() async {
     final result = await Navigator.of(context).push<_BootstrapResourceConfig>(
       MaterialPageRoute(
@@ -298,6 +318,44 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       return;
     }
     setState(() => _applyBootstrapResourceConfig(result));
+  }
+
+  Future<void> _openCliApiConfig() async {
+    final tool = await showDialog<CliToolDefinition>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('第三方 API 配置'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(CliToolService.codexTool),
+            child: const ListTile(
+              leading: Icon(Icons.auto_awesome),
+              title: Text('Codex'),
+              subtitle: Text('OpenAI 兼容 API、模型和推理强度'),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(CliToolService.claudeTool),
+            child: const ListTile(
+              leading: Icon(Icons.psychology),
+              title: Text('Claude'),
+              subtitle: Text('Anthropic 兼容 API、模型和推理强度'),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || tool == null) {
+      return;
+    }
+
+    final saved = await CliApiConfigDialog.show(context, tool: tool);
+    if (saved) {
+      await _loadCliApiConfigStatus();
+    }
   }
 
   Future<void> _importSnapshotAndContinue() async {
@@ -562,6 +620,15 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                   if (state.isComplete) ...[
                     SizedBox(
                       width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: _openCliApiConfig,
+                        icon: const Icon(Icons.tune),
+                        label: const Text('配置第三方 API（可选）'),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
                       child: FilledButton.icon(
                         onPressed: _handleConfigureApi,
                         icon: const Icon(Icons.arrow_forward),
@@ -586,6 +653,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                       l10n,
                       provider.isRunning,
                     ),
+                    const SizedBox(height: 12),
+                    _buildCliApiConfigButton(theme, provider.isRunning),
                     const SizedBox(height: 14),
                     SizedBox(
                       width: double.infinity,
@@ -880,6 +949,84 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     );
   }
 
+  Widget _buildCliApiConfigButton(ThemeData theme, bool disableSelection) {
+    final subtitle = _hasCliApiConfig
+        ? '已配置，将在 CLI 启动时自动加载'
+        : '可选：预填 Codex/Claude 的 API、模型和推理强度';
+    final fillColor =
+        theme.inputDecorationTheme.fillColor ?? theme.colorScheme.surface;
+    final titleColor =
+        disableSelection ? theme.disabledColor : theme.colorScheme.onSurface;
+    final subtitleColor = disableSelection
+        ? theme.disabledColor
+        : theme.colorScheme.onSurfaceVariant;
+
+    return Material(
+      color: fillColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: disableSelection ? null : _openCliApiConfig,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 11, 10, 11),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.tertiary.withAlpha(18),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  _hasCliApiConfig ? Icons.tune : Icons.tune_outlined,
+                  color: disableSelection
+                      ? theme.disabledColor
+                      : theme.colorScheme.tertiary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '第三方 API',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: titleColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: subtitleColor,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                color: subtitleColor,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildVersionSelector(
     ThemeData theme,
     AppLocalizations l10n,
@@ -902,58 +1049,38 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           ),
         ),
         const SizedBox(height: 6),
-        DropdownButtonFormField<String>(
-          isExpanded: true,
-          initialValue: canSelectVersions ? selectedRelease.version : null,
-          decoration: InputDecoration(
-            isDense: true,
-            border: const OutlineInputBorder(),
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            suffixIconConstraints: const BoxConstraints(
-              minWidth: 42,
-              minHeight: 42,
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                l10n.t('openClawReleaseListLimitHint'),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
             ),
-            suffixIcon: _loadingReleaseOptions
-                ? const Padding(
-                    padding: EdgeInsets.all(11),
-                    child: SizedBox(
+            IconButton(
+              tooltip: l10n.t('gatewayCheckUpdate'),
+              onPressed: disableSelection ? null : _loadOpenClawReleaseOptions,
+              icon: _loadingReleaseOptions
+                  ? const SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                : IconButton(
-                    tooltip: l10n.t('gatewayCheckUpdate'),
-                    onPressed:
-                        disableSelection ? null : _loadOpenClawReleaseOptions,
-                    icon: const Icon(Icons.refresh),
-                  ),
-          ),
-          items: availableReleases
-              .map(
-                (release) => DropdownMenuItem(
-                  value: release.version,
-                  child: Text(
-                    _formatSetupReleaseLabel(
-                      l10n,
-                      release,
-                      latestRelease,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              )
-              .toList(),
-          onChanged: disableSelection || !canSelectVersions
-              ? null
-              : (value) {
-                  if (value == null) return;
-                  setState(() {
-                    _selectedRelease =
-                        _findReleaseByVersion(availableReleases, value);
-                  });
-                },
+                    )
+                  : const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        OpenClawReleaseSelector(
+          releases: availableReleases,
+          selectedRelease: canSelectVersions ? selectedRelease : null,
+          latestRelease: latestRelease,
+          enabled: !disableSelection && canSelectVersions,
+          onChanged: (release) {
+            setState(() => _selectedRelease = release);
+          },
         ),
         if (selectedRelease != null) ...[
           const SizedBox(height: 8),
@@ -988,8 +1115,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     OpenClawReleaseInfo latestRelease,
   ) {
     final releasesByVersion = <String, OpenClawReleaseInfo>{
-      for (final release in releases) release.version: release,
       latestRelease.version: latestRelease,
+      for (final release in releases) release.version: release,
     };
 
     final merged = releasesByVersion.values.toList()
@@ -997,6 +1124,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
             b.version,
             a.version,
           ));
+    if (merged.length > OpenClawVersionService.defaultAvailableReleaseLimit) {
+      return merged.sublist(0, OpenClawVersionService.defaultAvailableReleaseLimit);
+    }
     return merged;
   }
 
@@ -1014,18 +1144,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       }
     }
     return null;
-  }
-
-  String _formatSetupReleaseLabel(
-    AppLocalizations l10n,
-    OpenClawReleaseInfo release,
-    OpenClawReleaseInfo? latestRelease,
-  ) {
-    return formatOpenClawReleaseLabel(
-      l10n,
-      release.version,
-      latestVersion: latestRelease?.version,
-    );
   }
 
   String _localizedSetupMessage(AppLocalizations l10n, String? message) {

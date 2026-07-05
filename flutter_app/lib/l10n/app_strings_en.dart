@@ -1,5 +1,5 @@
 const Map<String, String> appStringsEn = {
-  'appName': '小龙虾',
+  'appName': '次元虾',
   'language': 'Language',
   'languageSystem': 'System default',
   'languageEnglish': 'English',
@@ -327,6 +327,16 @@ const Map<String, String> appStringsEn = {
   'gatewayVersionCurrent': 'Up to date',
   'gatewayNodeRequirementHint': 'Requires Node.js {requirement}',
   'gatewaySelectVersion': 'Select Version',
+  'openClawReleaseListLimitHint':
+      'Showing the latest 10 stable releases. Expand a version to view changes.',
+  'openClawReleaseListEmpty': 'No available releases',
+  'openClawReleaseNotesTitle': 'Changes',
+  'openClawReleaseNotesLoading': 'Loading release notes...',
+  'openClawReleaseNotesUnavailable':
+      'This version does not provide release notes in the npm registry.',
+  'openClawReleaseSummary': '{size} · Published {date}',
+  'openClawReleasePackageSize': 'Unpacked size: {size}',
+  'openClawReleasePublishedAt': 'Published: {date}',
   'gatewayInstallSelectedVersion': 'Install Selected',
   'gatewayApplyingVersion': 'Installing...',
   'gatewayStatusRunning': 'Running',

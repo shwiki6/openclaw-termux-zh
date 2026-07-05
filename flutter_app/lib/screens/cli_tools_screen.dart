@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../app.dart';
 import '../models/cli_tool.dart';
+import '../services/cli_api_config_service.dart';
 import '../services/cli_tool_service.dart';
+import '../widgets/cli_api_config_dialog.dart';
 import 'terminal_screen.dart';
 
 class CliToolsScreen extends StatefulWidget {
@@ -66,6 +68,13 @@ class _CliToolsScreenState extends State<CliToolsScreen> {
     }
   }
 
+  Future<void> _configureTool(CliToolDefinition tool) async {
+    final saved = await CliApiConfigDialog.show(context, tool: tool);
+    if (saved && mounted) {
+      await _refresh();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -105,6 +114,8 @@ class _CliToolsScreenState extends State<CliToolsScreen> {
   Widget _buildToolCard(ThemeData theme, CliToolStatus status) {
     final tool = status.tool;
     final isShell = tool.id == CliToolService.shellTool.id;
+    final configurable =
+        CliApiConfigService.configurableToolIds.contains(tool.id);
     final installed = isShell || status.installed;
     final statusColor =
         installed ? AppColors.statusGreen : theme.colorScheme.error;
@@ -178,6 +189,14 @@ class _CliToolsScreenState extends State<CliToolsScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
+                if (configurable) ...[
+                  OutlinedButton.icon(
+                    onPressed: () => _configureTool(tool),
+                    icon: const Icon(Icons.tune),
+                    label: const Text('配置'),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 if (!isShell) ...[
                   FilledButton.icon(
                     onPressed: () => _installTool(tool),

@@ -17,23 +17,41 @@ typedef OpenClawInstallProgressCallback = void Function(
 
 class OpenClawReleaseInfo {
   final String version;
+  final String? description;
+  final String? releaseNotes;
+  final String? publishedAt;
   final int? unpackedSizeBytes;
   final String? nodeRequirement;
   final String? tarballUrl;
 
   const OpenClawReleaseInfo({
     required this.version,
+    this.description,
+    this.releaseNotes,
+    this.publishedAt,
     this.unpackedSizeBytes,
     this.nodeRequirement,
     this.tarballUrl,
   });
 
-  factory OpenClawReleaseInfo.fromJson(Map<String, dynamic> json) {
+  factory OpenClawReleaseInfo.fromJson(
+    Map<String, dynamic> json, {
+    String? publishedAt,
+  }) {
     final dist = json['dist'];
     final engines = json['engines'];
 
     return OpenClawReleaseInfo(
       version: (json['version'] as String?)?.trim() ?? '',
+      description: _stringOrNull(json['description']),
+      releaseNotes: _firstNonEmptyString([
+        json['releaseNotes'],
+        json['release_notes'],
+        json['changelog'],
+        json['changes'],
+        json['notes'],
+      ]),
+      publishedAt: publishedAt,
       unpackedSizeBytes:
           dist is Map<String, dynamic> ? dist['unpackedSize'] as int? : null,
       nodeRequirement:
@@ -41,6 +59,20 @@ class OpenClawReleaseInfo {
       tarballUrl:
           dist is Map<String, dynamic> ? dist['tarball'] as String? : null,
     );
+  }
+
+  static String? _stringOrNull(dynamic value) {
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  static String? _firstNonEmptyString(List<dynamic> values) {
+    for (final value in values) {
+      final string = _stringOrNull(value);
+      if (string != null) return string;
+    }
+    return null;
   }
 
   String? get unpackedSizeLabel {
@@ -58,6 +90,7 @@ class OpenClawVersionService {
   static const _packageRegistryEndpoint = 'https://registry.npmjs.org/openclaw';
   static const _latestReleaseEndpoint =
       'https://registry.npmjs.org/openclaw/latest';
+  static const defaultAvailableReleaseLimit = 10;
   static const _nodePathMarker = '__OPENCLAW_NODE_PATH__';
   static const _nodeWrapper = '/root/.openclaw/node-wrapper.js';
   static const _npmCli = '/usr/local/lib/node_modules/npm/bin/npm-cli.js';
@@ -362,6 +395,7 @@ class OpenClawVersionService {
     }
 
     final versions = decoded['versions'];
+    final publishedTimes = decoded['time'];
     if (versions is! Map<String, dynamic>) {
       throw Exception('Registry response missing versions');
     }
@@ -371,7 +405,13 @@ class OpenClawVersionService {
       if (value is! Map<String, dynamic>) {
         continue;
       }
-      final release = OpenClawReleaseInfo.fromJson(value);
+      final version = (value['version'] as String?)?.trim() ?? '';
+      final release = OpenClawReleaseInfo.fromJson(
+        value,
+        publishedAt: publishedTimes is Map<String, dynamic>
+            ? publishedTimes[version] as String?
+            : null,
+      );
       if (release.version.isEmpty || !isStableReleaseVersion(release.version)) {
         continue;
       }
@@ -381,11 +421,71 @@ class OpenClawVersionService {
     final releases = releasesByVersion.values.toList()
       ..sort((a, b) => compareVersions(b.version, a.version));
 
-    if (limit != null && limit > 0 && releases.length > limit) {
-      return releases.sublist(0, limit);
+    final effectiveLimit = limit ?? defaultAvailableReleaseLimit;
+    if (effectiveLimit > 0 && releases.length > effectiveLimit) {
+      return releases.sublist(0, effectiveLimit);
     }
 
     return releases;
+  }
+
+  Future<String?> fetchReleaseNotes(String version) async {
+    final normalizedVersion = version.trim();
+    if (normalizedVersion.isEmpty) {
+      return null;
+    }
+
+    final response = await http.get(
+      Uri.parse(
+        'https://unpkg.com/openclaw@$normalizedVersion/CHANGELOG.md',
+      ),
+      headers: const {'Accept': 'text/markdown,text/plain,*/*'},
+    ).timeout(const Duration(seconds: 12));
+
+    if (response.statusCode != 200 || response.body.trim().isEmpty) {
+      return null;
+    }
+
+    return extractReleaseNotesFromChangelog(
+      response.body,
+      normalizedVersion,
+    );
+  }
+
+  static String? extractReleaseNotesFromChangelog(
+    String changelog,
+    String version,
+  ) {
+    final normalizedVersion = version.trim();
+    if (changelog.trim().isEmpty || normalizedVersion.isEmpty) {
+      return null;
+    }
+
+    final heading = RegExp(
+      r'^##\s+\[?' + RegExp.escape(normalizedVersion) + r'\]?(?:\s|$).*$',
+      multiLine: true,
+    ).firstMatch(changelog);
+    if (heading == null) {
+      return null;
+    }
+
+    final contentStart = heading.end;
+    final nextHeading = RegExp(r'^##\s+', multiLine: true).firstMatch(
+      changelog.substring(contentStart),
+    );
+    final contentEnd = nextHeading == null
+        ? changelog.length
+        : contentStart + nextHeading.start;
+    final notes = changelog.substring(contentStart, contentEnd).trim();
+    if (notes.isEmpty) {
+      return null;
+    }
+
+    const maxLength = 2400;
+    if (notes.length <= maxLength) {
+      return notes;
+    }
+    return '${notes.substring(0, maxLength).trimRight()}\n...';
   }
 
   Future<void> updateToLatest({

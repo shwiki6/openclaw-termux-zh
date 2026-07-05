@@ -13,6 +13,7 @@ import '../screens/web_dashboard_screen.dart';
 import '../services/dashboard_url_resolver.dart';
 import '../services/install_status_message_formatter.dart';
 import '../services/openclaw_version_service.dart';
+import 'openclaw_release_selector.dart';
 
 class GatewayControls extends StatefulWidget {
   const GatewayControls({
@@ -634,35 +635,25 @@ class _GatewayControlsState extends State<GatewayControls> {
             ],
           ),
           const SizedBox(height: 10),
-          DropdownButtonFormField<String>(
-            isExpanded: true,
-            initialValue: selectedRelease?.version,
-            decoration: InputDecoration(
-              labelText: l10n.t('gatewaySelectVersion'),
-              border: const OutlineInputBorder(),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              l10n.t('gatewaySelectVersion'),
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-            items: _availableReleases
-                .map(
-                  (release) => DropdownMenuItem(
-                    value: release.version,
-                    child: Text(
-                      _formatReleaseLabel(release, l10n),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                )
-                .toList(),
-            onChanged: _updating || _loadingReleaseOptions
-                ? null
-                : (value) {
-                    if (value == null) return;
-                    setState(() {
-                      _selectedRelease =
-                          _findReleaseByVersion(_availableReleases, value);
-                    });
-                  },
+          ),
+          const SizedBox(height: 6),
+          OpenClawReleaseSelector(
+            releases: _availableReleases,
+            selectedRelease: selectedRelease,
+            latestRelease: _latestRelease,
+            enabled: !_updating && !_loadingReleaseOptions,
+            onChanged: (release) {
+              setState(() => _selectedRelease = release);
+            },
           ),
           if (selectedRelease != null) ...[
             const SizedBox(height: 8),
@@ -910,8 +901,8 @@ class _GatewayControlsState extends State<GatewayControls> {
     OpenClawReleaseInfo latestRelease,
   ) {
     final releasesByVersion = <String, OpenClawReleaseInfo>{
-      for (final release in releases) release.version: release,
       latestRelease.version: latestRelease,
+      for (final release in releases) release.version: release,
     };
 
     final merged = releasesByVersion.values.toList()
@@ -919,6 +910,9 @@ class _GatewayControlsState extends State<GatewayControls> {
             b.version,
             a.version,
           ));
+    if (merged.length > OpenClawVersionService.defaultAvailableReleaseLimit) {
+      return merged.sublist(0, OpenClawVersionService.defaultAvailableReleaseLimit);
+    }
     return merged;
   }
 
@@ -936,17 +930,6 @@ class _GatewayControlsState extends State<GatewayControls> {
       }
     }
     return null;
-  }
-
-  String _formatReleaseLabel(
-    OpenClawReleaseInfo release,
-    AppLocalizations l10n,
-  ) {
-    return formatOpenClawReleaseLabel(
-      l10n,
-      release.version,
-      latestVersion: _latestRelease?.version,
-    );
   }
 
   Widget _statusBadge(

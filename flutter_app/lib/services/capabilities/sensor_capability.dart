@@ -5,7 +5,7 @@ import '../../models/node_frame.dart';
 import 'capability_handler.dart';
 
 class SensorCapability extends CapabilityHandler {
-  static const _channel = MethodChannel('com.openclaw.xlx/native');
+  static const _channel = MethodChannel('com.openclaw.cyx/native');
 
   @override
   String get name => 'sensor';

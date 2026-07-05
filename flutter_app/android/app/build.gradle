@@ -34,7 +34,7 @@ def hasKeystore = keystoreProperties.containsKey('storeFile') &&
     file(keystoreProperties['storeFile']).exists()
 
 android {
-    namespace = "com.openclaw.xlx"
+    namespace = "com.openclaw.cyx"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
 
@@ -48,7 +48,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.openclaw.xlx"
+        applicationId = "com.openclaw.cyx"
         minSdk = 29
         targetSdk = 36
         versionCode = flutterVersionCode.toInteger()

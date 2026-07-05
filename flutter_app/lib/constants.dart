@@ -1,7 +1,7 @@
 class AppConstants {
-  static const String appName = '小龙虾';
+  static const String appName = '次元虾';
   static const String version = '2.0.3';
-  static const String packageName = 'com.openclaw.xlx';
+  static const String packageName = 'com.openclaw.cyx';
 
   /// Matches ANSI escape sequences (e.g. color codes in terminal output).
   static final ansiEscape = RegExp(r'\x1b\[[0-9;]*[a-zA-Z]');
@@ -170,11 +170,11 @@ class AppConstants {
   static const String nodeRole = 'node';
   static const int pairingTimeoutMs = 300000;
 
-  static const String channelName = 'com.openclaw.xlx/native';
+  static const String channelName = 'com.openclaw.cyx/native';
   static const String eventChannelName =
-      'com.openclaw.xlx/gateway_logs';
+      'com.openclaw.cyx/gateway_logs';
   static const String setupLogEventChannelName =
-      'com.openclaw.xlx/setup_logs';
+      'com.openclaw.cyx/setup_logs';
 
   static String getRootfsUrl(String arch) {
     switch (arch) {
