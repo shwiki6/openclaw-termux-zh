@@ -183,11 +183,21 @@ private object DetachedTerminalClient : TerminalSessionClient {
     override fun onColorsChanged(session: TerminalSession) = Unit
     override fun onTerminalCursorStateChange(state: Boolean) = Unit
     override fun getTerminalCursorStyle(): Int = TerminalEmulator.DEFAULT_TERMINAL_CURSOR_STYLE
-    override fun logError(tag: String, message: String) = android.util.Log.e(tag, message)
-    override fun logWarn(tag: String, message: String) = android.util.Log.w(tag, message)
-    override fun logInfo(tag: String, message: String) = android.util.Log.i(tag, message)
-    override fun logDebug(tag: String, message: String) = android.util.Log.d(tag, message)
-    override fun logVerbose(tag: String, message: String) = android.util.Log.v(tag, message)
+    override fun logError(tag: String, message: String) {
+        android.util.Log.e(tag, message)
+    }
+    override fun logWarn(tag: String, message: String) {
+        android.util.Log.w(tag, message)
+    }
+    override fun logInfo(tag: String, message: String) {
+        android.util.Log.i(tag, message)
+    }
+    override fun logDebug(tag: String, message: String) {
+        android.util.Log.d(tag, message)
+    }
+    override fun logVerbose(tag: String, message: String) {
+        android.util.Log.v(tag, message)
+    }
     override fun logStackTraceWithMessage(tag: String, message: String, e: Exception) {
         android.util.Log.e(tag, message, e)
     }
@@ -301,11 +311,21 @@ private class NativeTerminalClient(
         terminalView.setTerminalCursorBlinkerState(true, true)
     }
 
-    override fun logError(tag: String, message: String) = android.util.Log.e(tag, message)
-    override fun logWarn(tag: String, message: String) = android.util.Log.w(tag, message)
-    override fun logInfo(tag: String, message: String) = android.util.Log.i(tag, message)
-    override fun logDebug(tag: String, message: String) = android.util.Log.d(tag, message)
-    override fun logVerbose(tag: String, message: String) = android.util.Log.v(tag, message)
+    override fun logError(tag: String, message: String) {
+        android.util.Log.e(tag, message)
+    }
+    override fun logWarn(tag: String, message: String) {
+        android.util.Log.w(tag, message)
+    }
+    override fun logInfo(tag: String, message: String) {
+        android.util.Log.i(tag, message)
+    }
+    override fun logDebug(tag: String, message: String) {
+        android.util.Log.d(tag, message)
+    }
+    override fun logVerbose(tag: String, message: String) {
+        android.util.Log.v(tag, message)
+    }
     override fun logStackTraceWithMessage(tag: String, message: String, e: Exception) {
         android.util.Log.e(tag, message, e)
     }
