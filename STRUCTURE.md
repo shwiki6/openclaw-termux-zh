@@ -72,10 +72,10 @@
 
 | 层 | 技术 | 版本/说明 |
 |---|---|---|
-| App 框架 | Flutter | SDK >=3.2.0 |
+| App 框架 | Flutter | SDK >=3.19.0 |
 | UI 组件库 | Material Design 3 | `useMaterial3: true` |
 | 状态管理 | Provider | `provider: ^6.1.0` |
-| 终端模拟 | xterm + flutter_pty | `xterm: ^4.0.0` |
+| 终端模拟 | kterm + flutter_pty | `kterm: ^1.5.1`，MIT 许可终端 UI/控制器 + PTY 后端 |
 | Web 面板 | webview_flutter | `^4.4.0` |
 | 网络请求 | dio + http | `dio: ^5.4.0` |
 | WebSocket | web_socket_channel | `^3.0.0` |
@@ -596,7 +596,7 @@ context.l10n.t('gateway.start')     // → "启动网关"
 
 ### 9.1 环境要求
 
-- Flutter SDK >= 3.2.0
+- Flutter SDK >= 3.19.0
 - Android SDK（NDK 支持多架构）
 - Node.js >= 18（用于 CLI 部分）
 - Python 3（用于构建脚本）

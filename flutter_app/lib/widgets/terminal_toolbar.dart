@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter_pty/flutter_pty.dart';
 import '../app.dart';
 
 /// Termux-style extra keys toolbar for terminal screens.
@@ -10,13 +9,13 @@ import '../app.dart';
 /// CTRL and ALT state is exposed via [ValueNotifier]s so the parent
 /// screen can intercept keyboard input and apply modifiers.
 class TerminalToolbar extends StatefulWidget {
-  final Pty? pty;
+  final ValueChanged<Uint8List> onWrite;
   final ValueNotifier<bool> ctrlNotifier;
   final ValueNotifier<bool> altNotifier;
 
   const TerminalToolbar({
     super.key,
-    required this.pty,
+    required this.onWrite,
     required this.ctrlNotifier,
     required this.altNotifier,
   });
@@ -48,9 +47,6 @@ class _TerminalToolbarState extends State<TerminalToolbar> {
   }
 
   void _send(String data) {
-    final pty = widget.pty;
-    if (pty == null) return;
-
     if (_ctrlActive) {
       widget.ctrlNotifier.value = false;
 
@@ -58,7 +54,7 @@ class _TerminalToolbarState extends State<TerminalToolbar> {
       if (data.length == 1) {
         final code = data.toLowerCase().codeUnitAt(0);
         if (code >= 97 && code <= 122) {
-          pty.write(Uint8List.fromList([code - 96]));
+          widget.onWrite(Uint8List.fromList([code - 96]));
           return;
         }
       }
@@ -77,23 +73,23 @@ class _TerminalToolbarState extends State<TerminalToolbar> {
 
       final ctrlVariant = ctrlSeqMap[data];
       if (ctrlVariant != null) {
-        pty.write(utf8.encode(ctrlVariant));
+        widget.onWrite(Uint8List.fromList(utf8.encode(ctrlVariant)));
         return;
       }
 
       // Unhandled combo: send raw data (TAB, ESC, symbols, etc.)
-      pty.write(utf8.encode(data));
+      widget.onWrite(Uint8List.fromList(utf8.encode(data)));
       return;
     }
 
     if (_altActive) {
       // ALT+key: send ESC + key
       widget.altNotifier.value = false;
-      pty.write(utf8.encode('\x1b$data'));
+      widget.onWrite(Uint8List.fromList(utf8.encode('\x1b$data')));
       return;
     }
 
-    pty.write(utf8.encode(data));
+    widget.onWrite(Uint8List.fromList(utf8.encode(data)));
   }
 
   void _toggleCtrl() {

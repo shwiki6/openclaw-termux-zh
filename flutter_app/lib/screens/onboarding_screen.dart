@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:xterm/xterm.dart';
 import 'package:flutter_pty/flutter_pty.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../constants.dart';
@@ -9,6 +8,8 @@ import '../l10n/app_localizations.dart';
 import '../services/native_bridge.dart';
 import '../services/screenshot_service.dart';
 import '../services/dashboard_url_resolver.dart';
+import '../services/terminal_backend.dart';
+import '../services/terminal_input_controller.dart';
 import '../services/terminal_output_buffer.dart';
 import '../services/terminal_service.dart';
 import '../services/preferences_service.dart';
@@ -37,13 +38,12 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   late final Terminal _terminal;
   late final TerminalController _controller;
+  late final TerminalInputController _terminalInput;
   late final TerminalOutputBuffer _terminalOutputBuffer;
   Pty? _pty;
   bool _loading = true;
   bool _finished = false;
   String? _error;
-  final _ctrlNotifier = ValueNotifier<bool>(false);
-  final _altNotifier = ValueNotifier<bool>(false);
   final _screenshotKey = GlobalKey();
   static final _anyUrlRegex = RegExp(r'https?://[^\s<>\[\]"' "'" r'\)]+');
   static final _ansiEscape = AppConstants.ansiEscape;
@@ -84,6 +84,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _terminal = Terminal(maxLines: terminalScrollbackLines);
     _terminalOutputBuffer = TerminalOutputBuffer(_terminal);
     _controller = TerminalController();
+    _terminalInput = TerminalInputController(
+      onWrite: (bytes) => _pty?.write(bytes),
+    );
     NativeBridge.startTerminalService();
     // Defer PTY start until after the first frame so TerminalView has been
     // laid out and _terminal.viewWidth/viewHeight reflect real screen
@@ -189,22 +192,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         }
       });
 
-      _terminal.onOutput = (data) {
-        if (_ctrlNotifier.value && data.length == 1) {
-          final code = data.toLowerCase().codeUnitAt(0);
-          if (code >= 97 && code <= 122) {
-            _pty?.write(Uint8List.fromList([code - 96]));
-            _ctrlNotifier.value = false;
-            return;
-          }
-        }
-        if (_altNotifier.value && data.isNotEmpty) {
-          _pty?.write(utf8.encode('\x1b$data'));
-          _altNotifier.value = false;
-          return;
-        }
-        _pty?.write(utf8.encode(data));
-      };
+      _terminal.onOutput = _terminalInput.handleInput;
 
       _terminal.onResize = (w, h, pw, ph) {
         _pty?.resize(h, w);
@@ -230,8 +218,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   void dispose() {
-    _ctrlNotifier.dispose();
-    _altNotifier.dispose();
+    _terminalInput.dispose();
     _controller.dispose();
     _terminalOutputBuffer.dispose();
     _pty?.kill();
@@ -548,9 +535,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
             TerminalToolbar(
-              pty: _pty,
-              ctrlNotifier: _ctrlNotifier,
-              altNotifier: _altNotifier,
+              onWrite: _terminalInput.writeBytes,
+              ctrlNotifier: _terminalInput.ctrlNotifier,
+              altNotifier: _terminalInput.altNotifier,
             ),
           ],
           if (_finished)

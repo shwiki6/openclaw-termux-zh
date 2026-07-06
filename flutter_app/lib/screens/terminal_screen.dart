@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:xterm/xterm.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../services/terminal_backend.dart';
+import '../services/terminal_input_controller.dart';
 import '../services/persistent_terminal_session.dart';
 import '../services/screenshot_service.dart';
 import '../widgets/responsive_layout.dart';
@@ -28,10 +29,9 @@ class TerminalScreen extends StatefulWidget {
 class _TerminalScreenState extends State<TerminalScreen> {
   late final PersistentTerminalSession _session;
   late final TerminalController _controller;
+  late final TerminalInputController _terminalInput;
   final _inputController = TextEditingController();
   final _inputFocusNode = FocusNode();
-  final _ctrlNotifier = ValueNotifier<bool>(false);
-  final _altNotifier = ValueNotifier<bool>(false);
   final _screenshotKey = GlobalKey();
   static final _anyUrlRegex = RegExp(r'https?://[^\s<>\[\]"' "'" r'\)]+');
 
@@ -60,7 +60,10 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
     _session.addListener(_onSessionChanged);
     _controller = TerminalController();
-    _session.terminal.onOutput = _handleTerminalInput;
+    _terminalInput = TerminalInputController(
+      onWrite: (bytes) => _session.writeBytes(bytes),
+    );
+    _session.terminal.onOutput = _terminalInput.handleInput;
     _session.terminal.onResize = (w, h, pw, ph) {
       _session.resize(w, h);
     };
@@ -86,32 +89,13 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
   }
 
-  void _handleTerminalInput(String data) {
-    // Intercept keyboard input when CTRL/ALT toolbar modifiers are active.
-    if (_ctrlNotifier.value && data.length == 1) {
-      final code = data.toLowerCase().codeUnitAt(0);
-      if (code >= 97 && code <= 122) {
-        _session.writeBytes([code - 96]);
-        _ctrlNotifier.value = false;
-        return;
-      }
-    }
-    if (_altNotifier.value && data.isNotEmpty) {
-      _session.writeInput('\x1b$data');
-      _altNotifier.value = false;
-      return;
-    }
-    _session.writeInput(data);
-  }
-
   @override
   void dispose() {
     _session.terminal.onOutput = _session.writeInput;
     _session.removeListener(_onSessionChanged);
     _inputController.dispose();
     _inputFocusNode.dispose();
-    _ctrlNotifier.dispose();
-    _altNotifier.dispose();
+    _terminalInput.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -505,9 +489,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
           ),
         ),
         TerminalToolbar(
-          pty: _session.pty,
-          ctrlNotifier: _ctrlNotifier,
-          altNotifier: _altNotifier,
+          onWrite: _terminalInput.writeBytes,
+          ctrlNotifier: _terminalInput.ctrlNotifier,
+          altNotifier: _terminalInput.altNotifier,
         ),
         _buildInputBar(),
       ],

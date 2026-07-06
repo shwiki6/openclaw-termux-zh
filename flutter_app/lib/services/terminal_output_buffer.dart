@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:xterm/xterm.dart';
+import 'terminal_backend.dart';
 
 const terminalScrollbackLines = 3000;
 

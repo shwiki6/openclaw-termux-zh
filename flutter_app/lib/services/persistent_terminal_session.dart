@@ -3,9 +3,9 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_pty/flutter_pty.dart';
-import 'package:xterm/xterm.dart';
 
 import 'native_bridge.dart';
+import 'terminal_backend.dart';
 import 'terminal_output_buffer.dart';
 import 'terminal_service.dart';
 
