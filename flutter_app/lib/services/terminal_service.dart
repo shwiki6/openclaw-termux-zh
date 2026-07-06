@@ -201,7 +201,7 @@ class TerminalService {
         '\\$_fakeKernelVersion\\$machine\\localdomain\\-1\\';
   }
 
-  /// Host-side environment map for Pty.start().
+  /// Host-side environment map for native Termux terminal sessions.
   /// Only proot-specific vars; no guest vars (those are in env -i).
   static Map<String, String> buildHostEnv(Map<String, String> config) {
     return {

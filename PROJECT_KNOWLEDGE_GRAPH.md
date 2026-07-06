@@ -277,7 +277,7 @@ Core services:
 | `CliToolService` | Shell/Codex/Claude definitions and install scripts under `/opt/openclaw-cli`. |
 | `CliApiConfigService` | API proxy/env config for CLI tools. |
 | `TerminalService` | PRoot terminal command building and launch support. |
-| `PersistentTerminalSession` | Keeps terminal state/output across navigation. |
+| `NativeTerminalView.kt` / `NativeProotTerminal` | Android native Termux terminal view/session bridge for interactive PRoot command lines. |
 | `BackupService` | Config and workspace backup import/export orchestration. |
 | `SnapshotService` | Legacy snapshot compatibility/restore. |
 | `BackupLibraryService` | Backup library listing/metadata. |
@@ -719,4 +719,3 @@ These are not applied automatically; they are the next sensible secondary-develo
 4. Keep build target to `arm64-v8a` unless there is a specific need for universal or other ABI artifacts.
 5. Avoid editing the original source directory. Use `openclaw-termux-zh-dev` as the working copy.
 6. Before large builds, consider freeing storage because only about 2.4G remained after the copy.
-

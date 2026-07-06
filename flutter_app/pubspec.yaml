@@ -12,8 +12,6 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
-  kterm: ^1.5.1
-  flutter_pty: ^0.4.2
   webview_flutter: ^4.4.0
   webview_flutter_android: ^4.11.0
   dio: ^5.4.0

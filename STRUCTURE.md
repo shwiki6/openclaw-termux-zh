@@ -75,7 +75,7 @@
 | App 框架 | Flutter | SDK >=3.19.0 |
 | UI 组件库 | Material Design 3 | `useMaterial3: true` |
 | 状态管理 | Provider | `provider: ^6.1.0` |
-| 终端模拟 | kterm + flutter_pty | `kterm: ^1.5.1`，MIT 许可终端 UI/控制器 + PTY 后端 |
+| 终端模拟 | Termux terminal-view + terminal-emulator | Android 原生 PlatformView，`com.github.termux.termux-app:terminal-view:v0.118.0` |
 | Web 面板 | webview_flutter | `^4.4.0` |
 | 网络请求 | dio + http | `dio: ^5.4.0` |
 | WebSocket | web_socket_channel | `^3.0.0` |
@@ -776,7 +776,7 @@ bash scripts/build-prebuilt-rootfs.sh
 | **Git 历史缺失** | 当前是 zip 解压，无 git 历史，建议重新 `git init` 并关联上游 |
 | **MethodChannel 名称要一致** | Dart `NativeBridge` 与 Kotlin `MainActivity` 必须使用同一个方法名和参数结构 |
 | **版本号多处同步** | `package.json`、`flutter_app/pubspec.yaml`、`constants.dart`、README、release 文档需要同时核对 |
-| **移动端性能约束** | 大量终端输出要走 `TerminalOutputBuffer`，避免逐字符刷新 UI |
+| **移动端性能约束** | 交互终端走 Android 原生 Termux `TerminalView`，避免 Flutter 逐字符渲染 |
 | **国际化不能只改中文** | 新 UI 文案至少同步简中、繁中、英文、日文，避免缺键 |
 
 ### 10.4 推荐的开发 Workflow
@@ -915,7 +915,7 @@ cd flutter_app && flutter analyze && flutter test
 | 加新能力 | `services/capabilities/` 下任选一个作模板 |
 | 改中文文案 | `lib/l10n/app_strings_zh_hans.dart` |
 | 加新 AI 提供商 | `models/ai_provider.dart` + `services/provider_config_service.dart` |
-| 改终端行为 | `services/terminal_service.dart` |
+| 改终端行为 | `services/terminal_service.dart` + `widgets/native_proot_terminal.dart` + Android `NativeTerminalView.kt` |
 | 改本地模型 | `services/local_model_service.dart` |
 | 新增 Kotlin 方法 | `flutter_app/android/.../MainActivity.kt` + `native_bridge.dart` |
 | 改 PRoot 行为 | `android/.../ProcessManager.kt` + `lib/bionic-bypass.js` |

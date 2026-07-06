@@ -1,19 +1,10 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_pty/flutter_pty.dart';
+
 import '../models/optional_package.dart';
-import '../services/native_bridge.dart';
-import '../services/screenshot_service.dart';
-import '../services/terminal_backend.dart';
 import '../services/terminal_input_controller.dart';
-import '../services/terminal_output_buffer.dart';
-import '../services/terminal_service.dart';
-import '../widgets/responsive_layout.dart';
+import '../widgets/native_proot_terminal.dart';
 import '../widgets/terminal_toolbar.dart';
 
-/// Runs an install or uninstall command for an [OptionalPackage] inside proot.
-/// Follows the same terminal pattern as [OnboardingScreen].
 class PackageInstallScreen extends StatefulWidget {
   final OptionalPackage package;
   final bool isUninstall;
@@ -29,137 +20,39 @@ class PackageInstallScreen extends StatefulWidget {
 }
 
 class _PackageInstallScreenState extends State<PackageInstallScreen> {
-  late final Terminal _terminal;
-  late final TerminalController _controller;
+  final _terminalKey = GlobalKey<NativeProotTerminalState>();
   late final TerminalInputController _terminalInput;
-  late final TerminalOutputBuffer _outputBuffer;
-  Pty? _pty;
-  bool _loading = true;
   bool _finished = false;
-  String? _error;
-  final _screenshotKey = GlobalKey();
-
-  static const _fontFallback = [
-    'monospace',
-    'Noto Sans Mono',
-    'Noto Sans Mono CJK SC',
-    'Noto Sans Mono CJK TC',
-    'Noto Sans Mono CJK JP',
-    'Noto Color Emoji',
-    'Noto Sans Symbols',
-    'Noto Sans Symbols 2',
-    'sans-serif',
-  ];
+  var _generation = 0;
 
   @override
   void initState() {
     super.initState();
-    _terminal = Terminal(maxLines: terminalScrollbackLines);
-    _outputBuffer = TerminalOutputBuffer(_terminal);
-    _controller = TerminalController();
     _terminalInput = TerminalInputController(
-      onWrite: (bytes) => _pty?.write(bytes),
-    );
-    NativeBridge.startTerminalService();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _startProcess();
-    });
-  }
-
-  Future<void> _startProcess() async {
-    _outputBuffer.flush();
-    _pty?.kill();
-    _pty = null;
-    try {
-      final config = await TerminalService.getProotShellConfig();
-      final args = TerminalService.buildProotArgs(
-        config,
-        columns: _terminal.viewWidth,
-        rows: _terminal.viewHeight,
-      );
-
-      final command = widget.isUninstall
-          ? widget.package.uninstallCommand
-          : widget.package.installCommand;
-
-      // Replace login shell with the install/uninstall command
-      final cmdArgs = List<String>.from(args);
-      cmdArgs.removeLast(); // remove '-l'
-      cmdArgs.removeLast(); // remove '/bin/bash'
-      cmdArgs.addAll(['/bin/bash', '-lc', command]);
-
-      _pty = Pty.start(
-        config['executable']!,
-        arguments: cmdArgs,
-        environment: TerminalService.buildHostEnv(config),
-        columns: _terminal.viewWidth,
-        rows: _terminal.viewHeight,
-      );
-
-      final sentinel = widget.isUninstall
-          ? widget.package.uninstallSentinel
-          : widget.package.completionSentinel;
-
-      _pty!.output.cast<List<int>>().listen((data) {
-        final text = utf8.decode(data, allowMalformed: true);
-        _outputBuffer.write(text);
-
-        if (!_finished && text.contains(sentinel)) {
-          if (mounted) setState(() => _finished = true);
-        }
-      });
-
-      _pty!.exitCode.then((code) {
-        _outputBuffer.write('\r\n[Process exited with code $code]\r\n');
-        _outputBuffer.flush();
-        if (mounted && !_finished) {
-          setState(() => _finished = true);
-        }
-      });
-
-      _terminal.onOutput = _terminalInput.handleInput;
-
-      _terminal.onResize = (w, h, pw, ph) {
-        _pty?.resize(h, w);
-      };
-
-      setState(() => _loading = false);
-    } catch (e) {
-      setState(() {
-        _loading = false;
-        _error = 'Failed to start: $e';
-      });
-    }
-  }
-
-  Future<void> _paste() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (data?.text != null && data!.text!.isNotEmpty) {
-      _pty?.write(utf8.encode(data.text!));
-    }
-  }
-
-  Future<void> _takeScreenshot() async {
-    final path =
-        await ScreenshotService.capture(_screenshotKey, prefix: 'package');
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(path != null
-            ? 'Screenshot saved: ${path.split('/').last}'
-            : 'Failed to capture screenshot'),
-      ),
+      onWrite: (bytes) {
+        _terminalKey.currentState?.writeBytes(bytes);
+      },
     );
   }
 
   @override
   void dispose() {
     _terminalInput.dispose();
-    _controller.dispose();
-    _outputBuffer.dispose();
-    _pty?.kill();
-    NativeBridge.stopTerminalService();
     super.dispose();
+  }
+
+  String get _command =>
+      widget.isUninstall ? widget.package.uninstallCommand : widget.package.installCommand;
+
+  String get _sentinel => widget.isUninstall
+      ? widget.package.uninstallSentinel
+      : widget.package.completionSentinel;
+
+  void _restart() {
+    setState(() {
+      _finished = false;
+      _generation++;
+    });
   }
 
   @override
@@ -172,90 +65,42 @@ class _PackageInstallScreenState extends State<PackageInstallScreen> {
         automaticallyImplyLeading: false,
         actions: [
           IconButton(
-            icon: const Icon(Icons.camera_alt_outlined),
-            tooltip: 'Screenshot',
-            onPressed: _takeScreenshot,
-          ),
-          IconButton(
             icon: const Icon(Icons.paste),
             tooltip: 'Paste',
-            onPressed: _paste,
+            onPressed: () => _terminalKey.currentState?.paste(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Restart',
+            onPressed: _restart,
           ),
         ],
       ),
       body: Column(
         children: [
-          if (_loading)
-            Expanded(
-              child: ResponsiveLayout.scrollableCenter(
-                child: const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('Starting...'),
-                  ],
-                ),
-              ),
-            )
-          else if (_error != null)
-            Expanded(
-              child: ResponsiveLayout.scrollableCenter(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.error_outline,
-                      size: 48,
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _loading = true;
-                          _error = null;
-                          _finished = false;
-                        });
-                        _startProcess();
-                      },
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else ...[
-            Expanded(
-              child: RepaintBoundary(
-                key: _screenshotKey,
-                child: TerminalView(
-                  _terminal,
-                  controller: _controller,
-                  textStyle: const TerminalStyle(
-                    fontSize: 11,
-                    height: 1.0,
-                    fontFamily: 'DejaVuSansMono',
-                    fontFamilyFallback: _fontFallback,
-                  ),
-                ),
-              ),
+          Expanded(
+            child: NativeProotTerminal(
+              key: ValueKey('package-${widget.package.id}-$_generation'),
+              sessionId: 'package-${widget.package.id}-$_generation',
+              command: _command,
+              emitOutput: true,
+              onOutput: (text) {
+                if (!_finished && text.contains(_sentinel) && mounted) {
+                  setState(() => _finished = true);
+                }
+              },
+              onSessionFinished: (_) {
+                if (mounted && !_finished) {
+                  setState(() => _finished = true);
+                }
+              },
             ),
-            TerminalToolbar(
-              onWrite: _terminalInput.writeBytes,
-              ctrlNotifier: _terminalInput.ctrlNotifier,
-              altNotifier: _terminalInput.altNotifier,
-            ),
-          ],
+          ),
+          TerminalToolbar(
+            onWrite: _terminalInput.writeBytes,
+            ctrlNotifier: _terminalInput.ctrlNotifier,
+            altNotifier: _terminalInput.altNotifier,
+          ),
           if (_finished)
             Padding(
               padding: const EdgeInsets.all(16),

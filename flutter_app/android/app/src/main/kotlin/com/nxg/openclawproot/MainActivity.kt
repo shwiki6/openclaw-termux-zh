@@ -66,6 +66,13 @@ class MainActivity : FlutterActivity() {
 
         val filesDir = applicationContext.filesDir.absolutePath
         val nativeLibDir = applicationContext.applicationInfo.nativeLibraryDir
+        flutterEngine
+            .platformViewsController
+            .registry
+            .registerViewFactory(
+                "openclaw/native_terminal",
+                NativeTerminalViewFactory(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
+            )
 
         bootstrapManager = BootstrapManager(applicationContext, filesDir, nativeLibDir)
         processManager = ProcessManager(filesDir, nativeLibDir)
