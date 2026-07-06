@@ -23,6 +23,26 @@ class CustomProviderConnectionTestResult {
   final bool autoDetected;
 }
 
+class CustomProviderModelListResult {
+  const CustomProviderModelListResult({
+    required this.success,
+    required this.compatibility,
+    required this.endpoint,
+    required this.models,
+    this.statusCode,
+    this.detail,
+    this.autoDetected = false,
+  });
+
+  final bool success;
+  final CustomProviderCompatibility compatibility;
+  final Uri endpoint;
+  final List<String> models;
+  final int? statusCode;
+  final String? detail;
+  final bool autoDetected;
+}
+
 class CustomProviderConnectionTestService {
   CustomProviderConnectionTestService({Dio? dio})
       : _dio = dio ??
@@ -41,6 +61,47 @@ class CustomProviderConnectionTestService {
             );
 
   final Dio _dio;
+
+  Future<CustomProviderModelListResult> fetchModels({
+    required CustomProviderCompatibility compatibility,
+    required String baseUrl,
+    required String apiKey,
+  }) async {
+    final normalizedBaseUrl = baseUrl.trim();
+    final normalizedApiKey = apiKey.trim();
+
+    if (compatibility != CustomProviderCompatibility.autoDetect) {
+      final result = await _runModelListProbe(
+        compatibility,
+        baseUrl: normalizedBaseUrl,
+        apiKey: normalizedApiKey,
+      );
+      if (result.success) {
+        return result;
+      }
+      throw Exception(_modelListFailureText(result));
+    }
+
+    final attempts = _autoDetectCompatibilities(
+      normalizedBaseUrl,
+      normalizedApiKey,
+    );
+    final failures = <CustomProviderModelListResult>[];
+    for (final candidate in attempts) {
+      final result = await _runModelListProbe(
+        candidate,
+        baseUrl: normalizedBaseUrl,
+        apiKey: normalizedApiKey,
+        autoDetected: true,
+      );
+      if (result.success) {
+        return result;
+      }
+      failures.add(result);
+    }
+
+    throw Exception(_modelListFailureText(_pickBestModelListFailure(failures)));
+  }
 
   Future<CustomProviderConnectionTestResult> testConnection({
     required CustomProviderCompatibility compatibility,
@@ -91,6 +152,34 @@ class CustomProviderConnectionTestService {
     required String modelId,
     bool autoDetected = false,
   }) async {
+    final modelListResult = await _runModelListProbe(
+      compatibility,
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+      autoDetected: autoDetected,
+    );
+    if (modelListResult.success) {
+      return CustomProviderConnectionTestResult(
+        success: true,
+        compatibility: compatibility,
+        endpoint: modelListResult.endpoint,
+        statusCode: modelListResult.statusCode,
+        detail: _modelListSuccessDetail(modelListResult, modelId),
+        autoDetected: autoDetected,
+      );
+    }
+    if (modelListResult.statusCode == 401 ||
+        modelListResult.statusCode == 403) {
+      return CustomProviderConnectionTestResult(
+        success: false,
+        compatibility: compatibility,
+        endpoint: modelListResult.endpoint,
+        statusCode: modelListResult.statusCode,
+        detail: modelListResult.detail,
+        autoDetected: autoDetected,
+      );
+    }
+
     final request = _buildRequest(
       compatibility,
       baseUrl: baseUrl,
@@ -105,16 +194,20 @@ class CustomProviderConnectionTestService {
         options: Options(headers: request.headers),
       );
       final detail = _extractErrorDetail(response.data);
-      final success = response.statusCode != null &&
-          response.statusCode! >= 200 &&
-          response.statusCode! < 300;
+      final statusCode = response.statusCode;
+      final success = statusCode != null &&
+          ((statusCode >= 200 && statusCode < 300) || statusCode == 503);
 
       return CustomProviderConnectionTestResult(
         success: success,
         compatibility: compatibility,
         endpoint: request.endpoint,
-        statusCode: response.statusCode,
-        detail: success ? null : detail,
+        statusCode: statusCode,
+        detail: statusCode == 503
+            ? '生成探测返回 HTTP 503，但端点可达，已按不阻断处理'
+            : success
+                ? null
+                : detail,
         autoDetected: autoDetected,
       );
     } on DioException catch (error) {
@@ -142,6 +235,109 @@ class CustomProviderConnectionTestService {
         detail: '$error',
         autoDetected: autoDetected,
       );
+    }
+  }
+
+  Future<CustomProviderModelListResult> _runModelListProbe(
+    CustomProviderCompatibility compatibility, {
+    required String baseUrl,
+    required String apiKey,
+    bool autoDetected = false,
+  }) async {
+    final request = _buildModelListRequest(
+      compatibility,
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+    );
+
+    try {
+      final response = await _dio.getUri(
+        request.endpoint,
+        options: Options(headers: request.headers),
+      );
+      final statusCode = response.statusCode;
+      final success =
+          statusCode != null && statusCode >= 200 && statusCode < 300;
+      final models = success ? _extractModelIds(response.data) : <String>[];
+      final modelListOk = success && models.isNotEmpty;
+      return CustomProviderModelListResult(
+        success: modelListOk,
+        compatibility: compatibility,
+        endpoint: request.endpoint,
+        models: models,
+        statusCode: statusCode,
+        detail: modelListOk ? null : _extractErrorDetail(response.data),
+        autoDetected: autoDetected,
+      );
+    } on DioException catch (error) {
+      return CustomProviderModelListResult(
+        success: false,
+        compatibility: compatibility,
+        endpoint: request.endpoint,
+        models: const [],
+        statusCode: error.response?.statusCode,
+        detail: _extractDioErrorDetail(error),
+        autoDetected: autoDetected,
+      );
+    } on TimeoutException {
+      return CustomProviderModelListResult(
+        success: false,
+        compatibility: compatibility,
+        endpoint: request.endpoint,
+        models: const [],
+        detail: 'Request timed out',
+        autoDetected: autoDetected,
+      );
+    } catch (error) {
+      return CustomProviderModelListResult(
+        success: false,
+        compatibility: compatibility,
+        endpoint: request.endpoint,
+        models: const [],
+        detail: '$error',
+        autoDetected: autoDetected,
+      );
+    }
+  }
+
+  _ProbeRequest _buildModelListRequest(
+    CustomProviderCompatibility compatibility, {
+    required String baseUrl,
+    required String apiKey,
+  }) {
+    switch (compatibility) {
+      case CustomProviderCompatibility.autoDetect:
+        throw StateError('autoDetect is resolved before building a request');
+      case CustomProviderCompatibility.openaiChatCompletions:
+      case CustomProviderCompatibility.zhipuChatCompletions:
+      case CustomProviderCompatibility.openaiResponses:
+        return _ProbeRequest(
+          endpoint: _appendPath(baseUrl, 'models'),
+          headers: _bearerHeaders(apiKey),
+          body: const <String, dynamic>{},
+        );
+      case CustomProviderCompatibility.anthropicMessages:
+        return _ProbeRequest(
+          endpoint: _appendPath(baseUrl, 'models'),
+          headers: {
+            if (apiKey.isNotEmpty) 'x-api-key': apiKey,
+            if (apiKey.isNotEmpty) 'Authorization': 'Bearer $apiKey',
+            'anthropic-version': '2023-06-01',
+          },
+          body: const <String, dynamic>{},
+        );
+      case CustomProviderCompatibility.googleGenerativeAi:
+        return _ProbeRequest(
+          endpoint: _appendPath(
+            baseUrl,
+            'models',
+            queryParameters: {
+              if (apiKey.isNotEmpty) 'key': apiKey,
+            },
+          ),
+          headers: const <String, String>{},
+          body: const <String, dynamic>{},
+        );
     }
   }
 
@@ -289,6 +485,98 @@ class CustomProviderConnectionTestService {
     }
 
     return failures.first;
+  }
+
+  CustomProviderModelListResult _pickBestModelListFailure(
+    List<CustomProviderModelListResult> failures,
+  ) {
+    if (failures.isEmpty) {
+      throw StateError('Expected at least one failure result');
+    }
+
+    for (final result in failures) {
+      if (result.statusCode != null &&
+          result.statusCode != 404 &&
+          result.statusCode != 405) {
+        return result;
+      }
+    }
+
+    for (final result in failures) {
+      if (result.detail != null && result.detail!.trim().isNotEmpty) {
+        return result;
+      }
+    }
+
+    return failures.first;
+  }
+
+  String _modelListSuccessDetail(
+    CustomProviderModelListResult result,
+    String modelId,
+  ) {
+    final normalizedTarget = _normalizeModelId(modelId);
+    final containsTarget = normalizedTarget.isNotEmpty &&
+        result.models.any((model) => _normalizeModelId(model) == normalizedTarget);
+    if (containsTarget) {
+      return '模型列表接口可用，已找到 $modelId';
+    }
+    return '模型列表接口可用，返回 ${result.models.length} 个模型';
+  }
+
+  String _modelListFailureText(CustomProviderModelListResult result) {
+    final parts = <String>[];
+    if (result.statusCode != null) {
+      parts.add('HTTP ${result.statusCode}');
+    }
+    final detail = result.detail?.trim();
+    if (detail != null && detail.isNotEmpty) {
+      parts.add(detail);
+    }
+    parts.add(result.endpoint.toString());
+    return parts.join(' · ');
+  }
+
+  List<String> _extractModelIds(dynamic decoded) {
+    final result = <String>{};
+
+    void addModel(dynamic item) {
+      if (item is String && item.trim().isNotEmpty) {
+        result.add(_normalizeModelId(item));
+        return;
+      }
+      if (item is Map) {
+        final id = item['id'] ?? item['name'] ?? item['model'];
+        if (id is String && id.trim().isNotEmpty) {
+          result.add(_normalizeModelId(id));
+        }
+      }
+    }
+
+    if (decoded is Map) {
+      final data = decoded['data'] ?? decoded['models'];
+      if (data is List) {
+        for (final item in data) {
+          addModel(item);
+        }
+      } else {
+        addModel(data);
+      }
+    } else if (decoded is List) {
+      for (final item in decoded) {
+        addModel(item);
+      }
+    }
+
+    return result.where((model) => model.isNotEmpty).toList()..sort();
+  }
+
+  String _normalizeModelId(String value) {
+    final trimmed = value.trim();
+    if (trimmed.startsWith('models/')) {
+      return trimmed.substring('models/'.length);
+    }
+    return trimmed;
   }
 
   Map<String, String> _bearerHeaders(String apiKey) {

@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import '../app.dart';
 import '../l10n/app_localizations.dart';
 import '../models/ai_provider.dart';
+import '../models/custom_provider_preset.dart';
 import '../providers/gateway_provider.dart';
+import '../services/custom_provider_connection_test_service.dart';
 import '../services/provider_config_service.dart';
 
 /// Form screen to configure API key and model for a single AI provider.
@@ -29,14 +31,17 @@ class ProviderDetailScreen extends StatefulWidget {
 class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
   static const _customModelSentinel = '__custom__';
 
+  final _connectionTestService = CustomProviderConnectionTestService();
   late final TextEditingController _apiKeyController;
   late final TextEditingController _baseUrlController;
   late final TextEditingController _customModelController;
   late String _selectedModel;
+  List<String> _availableModels = const [];
   bool _isCustomModel = false;
   bool _obscureKey = true;
   bool _saving = false;
   bool _removing = false;
+  bool _loadingModels = false;
 
   bool get _isConfigured =>
       widget.existingApiKey != null && widget.existingApiKey!.isNotEmpty;
@@ -47,6 +52,18 @@ class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
 
   bool get _supportsCustomBaseUrl => widget.provider.supportsCustomBaseUrl;
 
+  List<String> get _modelOptions {
+    final models = <String>{
+      ...widget.provider.defaultModels,
+      ..._availableModels,
+    };
+    if (_selectedModel != _customModelSentinel &&
+        _selectedModel.trim().isNotEmpty) {
+      models.add(_selectedModel.trim());
+    }
+    return models.toList()..sort();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -56,6 +73,7 @@ class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
       text: widget.existingBaseUrl ?? widget.provider.baseUrl,
     );
     _customModelController = TextEditingController();
+    _availableModels = widget.provider.defaultModels;
 
     final existing = widget.existingModel ??
         (widget.provider.defaultModels.isNotEmpty
@@ -86,6 +104,90 @@ class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
   bool _isValidBaseUrl(String value) {
     final uri = Uri.tryParse(value);
     return uri != null && uri.hasScheme && uri.hasAuthority;
+  }
+
+  CustomProviderCompatibility _providerCompatibility() {
+    switch (widget.provider.id) {
+      case 'anthropic':
+        return CustomProviderCompatibility.anthropicMessages;
+      case 'google':
+        return CustomProviderCompatibility.googleGenerativeAi;
+      case 'zhipu':
+        return CustomProviderCompatibility.zhipuChatCompletions;
+      default:
+        return CustomProviderCompatibility.openaiChatCompletions;
+    }
+  }
+
+  Future<void> _fetchModels() async {
+    final l10n = context.l10n;
+    final apiKey = _apiKeyController.text.trim();
+    final baseUrl = _supportsCustomBaseUrl
+        ? widget.provider.normalizeBaseUrl(_baseUrlController.text)
+        : widget.provider.baseUrl;
+    if (!_isValidBaseUrl(baseUrl)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.t('providerDetailEndpointInvalid'))),
+      );
+      return;
+    }
+
+    setState(() => _loadingModels = true);
+    try {
+      final result = await _connectionTestService.fetchModels(
+        compatibility: _providerCompatibility(),
+        apiKey: apiKey,
+        baseUrl: baseUrl,
+      );
+      final models = result.models;
+      if (!mounted) {
+        return;
+      }
+      if (models.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.t('providerDetailFetchModelsEmpty'))),
+        );
+        return;
+      }
+      final currentModel = _effectiveModel;
+      setState(() {
+        _availableModels = models;
+        if (currentModel.isEmpty) {
+          _selectedModel = models.first;
+          _isCustomModel = false;
+        } else if (models.contains(currentModel)) {
+          _selectedModel = currentModel;
+          _isCustomModel = false;
+        }
+      });
+      if (_supportsCustomBaseUrl) {
+        _baseUrlController.text = baseUrl;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            l10n.t('providerDetailFetchModelsSuccess', {
+              'count': models.length,
+            }),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            l10n.t('providerDetailFetchModelsFailed', {'error': '$error'}),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loadingModels = false);
+      }
+    }
   }
 
   Future<void> _save() async {
@@ -311,19 +413,42 @@ class _ProviderDetailScreenState extends State<ProviderDetailScreen> {
           const SizedBox(height: 24),
 
           // Model selection
-          Text(
-            l10n.t('providerDetailModel'),
-            style: theme.textTheme.titleSmall
-                ?.copyWith(fontWeight: FontWeight.w600),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.t('providerDetailModel'),
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _loadingModels || _saving ? null : _fetchModels,
+                icon: _loadingModels
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.cloud_download_outlined),
+                label: Text(
+                  l10n.t(
+                    _loadingModels
+                        ? 'providerDetailFetchingModels'
+                        : 'providerDetailFetchModels',
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
-          if (widget.provider.defaultModels.isNotEmpty)
+          if (_modelOptions.isNotEmpty)
             DropdownButtonFormField<String>(
               value: _selectedModel,
               isExpanded: true,
               decoration: const InputDecoration(),
               items: [
-                ...widget.provider.defaultModels
+                ..._modelOptions
                     .map((m) => DropdownMenuItem(value: m, child: Text(m))),
                 DropdownMenuItem(
                   value: _customModelSentinel,

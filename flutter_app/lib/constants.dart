@@ -8,8 +8,13 @@ class AppConstants {
 
   static const String authorName = 'JunWan';
   static const String authorEmail = 'susuya0712@gmail.com';
+  static const String githubRepoLabel = 'shwiki6/openclaw-termux-zh';
   static const String githubUrl =
       'https://github.com/shwiki6/openclaw-termux-zh';
+  static const String thirdPartyNoticesUrl =
+      '$githubUrl/blob/main/THIRD_PARTY_NOTICES.md';
+  static const String openSourceSourcesUrl =
+      '$githubUrl/blob/main/OPEN_SOURCE_SOURCES.md';
   static const String license = 'MIT for project-owned code';
   static const String licenseSummary =
       'Project-owned code is MIT; third-party components keep their own licenses.';

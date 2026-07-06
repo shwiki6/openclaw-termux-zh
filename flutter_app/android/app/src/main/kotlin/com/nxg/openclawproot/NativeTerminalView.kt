@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -275,6 +276,8 @@ private class NativeTerminalClient(
     private var controlDown = false
     private var altDown = false
     private var lastTranscript = ""
+    private var pendingScale = 1.0f
+    private var lastScaleApplyMs = 0L
 
     override fun onTextChanged(changedSession: TerminalSession) {
         terminalView.onScreenUpdated()
@@ -328,9 +331,21 @@ private class NativeTerminalClient(
 
     override fun onScale(scale: Float): Float {
         if (scale.isNaN() || scale.isInfinite()) return 1.0f
-        val nextFontSize = (fontSize * scale).roundToInt().coerceIn(12, 32)
-        if (abs(nextFontSize - fontSize) >= 1) {
+        pendingScale *= scale.coerceIn(0.85f, 1.15f)
+        val nextFontSize = (fontSize * pendingScale).roundToInt().coerceIn(12, 32)
+        val now = SystemClock.uptimeMillis()
+        val crossedScaleThreshold = pendingScale <= 0.92f || pendingScale >= 1.08f
+        val canApply = now - lastScaleApplyMs >= 40L || crossedScaleThreshold
+        if (abs(nextFontSize - fontSize) >= 1 && canApply) {
             setFontSize(nextFontSize)
+            pendingScale = 1.0f
+            lastScaleApplyMs = now
+        } else if (nextFontSize == fontSize &&
+            crossedScaleThreshold &&
+            (fontSize == 12 || fontSize == 32)
+        ) {
+            pendingScale = 1.0f
+            lastScaleApplyMs = now
         }
         return 1.0f
     }

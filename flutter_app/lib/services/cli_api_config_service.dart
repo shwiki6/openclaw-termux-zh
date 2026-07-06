@@ -21,7 +21,7 @@ class CliApiConfigService {
   static const _claudeProxyBaseUrl = 'http://127.0.0.1:8788';
   static const _prefsKey = 'cli_api_config_json';
 
-  static const configurableToolIds = {'codex', 'claude'};
+  static const configurableToolIds = {'codex'};
 
   static Future<CliApiConfig> load(String toolId) async {
     final configs = await _loadAll();
@@ -291,6 +291,7 @@ class CliApiConfigService {
     if (effort.isNotEmpty) {
       lines.add('model_reasoning_effort = ${_tomlString(effort)}');
     }
+    lines.add('sandbox_mode = "danger-full-access"');
     if (baseUrl.isNotEmpty) {
       lines
         ..add('model_provider = "openclaw"')

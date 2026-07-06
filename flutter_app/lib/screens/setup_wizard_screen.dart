@@ -336,15 +336,6 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
               subtitle: Text('OpenAI 兼容 API、模型和推理强度'),
             ),
           ),
-          SimpleDialogOption(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(CliToolService.claudeTool),
-            child: const ListTile(
-              leading: Icon(Icons.psychology),
-              title: Text('Claude'),
-              subtitle: Text('Anthropic 兼容 API、模型和推理强度'),
-            ),
-          ),
         ],
       ),
     );

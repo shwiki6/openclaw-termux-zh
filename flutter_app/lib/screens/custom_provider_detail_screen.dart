@@ -29,6 +29,7 @@ class _CustomProviderDetailScreenState
   late final TextEditingController _aliasController;
 
   List<CustomProviderPreset> _presets = const [];
+  List<String> _availableModels = const [];
   String? _activeModel;
   String _selectedPresetValue = _newPresetValue;
   CustomProviderCompatibility _compatibility =
@@ -37,6 +38,7 @@ class _CustomProviderDetailScreenState
   bool _saving = false;
   bool _removing = false;
   bool _testingConnection = false;
+  bool _loadingModels = false;
   bool _obscureKey = true;
   bool _didChange = false;
   String? _lastTestFingerprint;
@@ -160,6 +162,7 @@ class _CustomProviderDetailScreenState
       _providerIdController.text = preset.providerId;
       _aliasController.text = preset.alias;
       _thinkingLevel = preset.thinkingLevel;
+      _availableModels = const [];
     });
   }
 
@@ -174,6 +177,7 @@ class _CustomProviderDetailScreenState
       _providerIdController.clear();
       _aliasController.clear();
       _thinkingLevel = null;
+      _availableModels = const [];
     });
   }
 
@@ -200,6 +204,18 @@ class _CustomProviderDetailScreenState
       return false;
     }
 
+    return true;
+  }
+
+  bool _validateModelFetchInputs() {
+    final l10n = context.l10n;
+    final baseUrl = _baseUrlController.text.trim();
+    if (!_isValidBaseUrl(baseUrl)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.t('providerDetailEndpointInvalid'))),
+      );
+      return false;
+    }
     return true;
   }
 
@@ -236,6 +252,65 @@ class _CustomProviderDetailScreenState
     } finally {
       if (mounted) {
         setState(() => _testingConnection = false);
+      }
+    }
+  }
+
+  Future<void> _fetchModels() async {
+    if (!_validateModelFetchInputs()) {
+      return;
+    }
+
+    final l10n = context.l10n;
+    setState(() => _loadingModels = true);
+    try {
+      final result = await _connectionTestService.fetchModels(
+        compatibility: _compatibility,
+        apiKey: _apiKeyController.text.trim(),
+        baseUrl: _baseUrlController.text.trim(),
+      );
+      if (!mounted) {
+        return;
+      }
+      if (result.models.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.t('providerDetailFetchModelsEmpty'))),
+        );
+        return;
+      }
+      setState(() {
+        _availableModels = result.models;
+        if (_modelIdController.text.trim().isEmpty) {
+          _modelIdController.text = result.models.first;
+        }
+        if (_compatibility == CustomProviderCompatibility.autoDetect &&
+            result.autoDetected) {
+          _compatibility = result.compatibility;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            l10n.t('providerDetailFetchModelsSuccess', {
+              'count': result.models.length,
+            }),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            l10n.t('providerDetailFetchModelsFailed', {'error': '$error'}),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loadingModels = false);
       }
     }
   }
@@ -741,6 +816,7 @@ class _CustomProviderDetailScreenState
                   _fieldTitle(theme, l10n.t('customProviderCompatibility')),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<CustomProviderCompatibility>(
+                    key: ValueKey(_compatibility),
                     initialValue: _compatibility,
                     items: [
                       for (final item in CustomProviderCompatibility.values)
@@ -755,6 +831,7 @@ class _CustomProviderDetailScreenState
                       }
                       setState(() {
                         _compatibility = value;
+                        _availableModels = const [];
                         if (_selectedPreset == null) {
                           final currentBaseUrl = _baseUrlController.text.trim();
                           if (value ==
@@ -814,7 +891,35 @@ class _CustomProviderDetailScreenState
                     ),
                   ),
                   const SizedBox(height: 24),
-                  _fieldTitle(theme, l10n.t('customProviderModelId')),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _fieldTitle(
+                          theme,
+                          l10n.t('customProviderModelId'),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed:
+                            _loadingModels || _saving ? null : _fetchModels,
+                        icon: _loadingModels
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.cloud_download_outlined),
+                        label: Text(
+                          l10n.t(
+                            _loadingModels
+                                ? 'customProviderFetchingModelsAction'
+                                : 'customProviderFetchModelsAction',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   TextField(
                     controller: _modelIdController,
@@ -822,6 +927,40 @@ class _CustomProviderDetailScreenState
                       hintText: _modelHintText(l10n),
                     ),
                   ),
+                  if (_availableModels.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(
+                        '${_availableModels.join('|')}::'
+                        '${_modelIdController.text.trim()}',
+                      ),
+                      initialValue: _availableModels.contains(
+                        _modelIdController.text.trim(),
+                      )
+                          ? _modelIdController.text.trim()
+                          : null,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        helperText:
+                            l10n.t('providerDetailFetchModelsSuccess', {
+                          'count': _availableModels.length,
+                        }),
+                      ),
+                      items: [
+                        for (final model in _availableModels)
+                          DropdownMenuItem(
+                            value: model,
+                            child: Text(model),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) {
+                          return;
+                        }
+                        setState(() => _modelIdController.text = value);
+                      },
+                    ),
+                  ],
                   const SizedBox(height: 24),
                   _fieldTitle(theme, l10n.t('customProviderThinking')),
                   const SizedBox(height: 8),

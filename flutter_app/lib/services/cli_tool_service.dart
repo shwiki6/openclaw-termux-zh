@@ -46,7 +46,6 @@ class CliToolService {
   static const allTools = [
     shellTool,
     codexTool,
-    claudeTool,
   ];
 
   static const _commonNpmInstallPrefix = r'''

@@ -421,7 +421,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 ListTile(
                   title: Text(l10n.t('settingsGithub')),
-                  subtitle: const Text('JunWan666/openclaw-termux-zh'),
+                  subtitle: const Text(AppConstants.githubRepoLabel),
                   leading: const Icon(Icons.code),
                   trailing: const Icon(Icons.open_in_new, size: 18),
                   onTap: () => launchUrl(
@@ -451,6 +451,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: Text(l10n.t('settingsLicense')),
                   subtitle: const Text(AppConstants.licenseSummary),
                   leading: const Icon(Icons.description),
+                  trailing: const Icon(Icons.open_in_new, size: 18),
+                  onTap: () => launchUrl(
+                    Uri.parse('${AppConstants.githubUrl}/blob/main/LICENSE'),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                ),
+                ListTile(
+                  title: Text(l10n.t('settingsThirdPartyNotices')),
+                  subtitle: const Text('THIRD_PARTY_NOTICES.md'),
+                  leading: const Icon(Icons.article_outlined),
+                  trailing: const Icon(Icons.open_in_new, size: 18),
+                  onTap: () => launchUrl(
+                    Uri.parse(AppConstants.thirdPartyNoticesUrl),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                ),
+                ListTile(
+                  title: Text(l10n.t('settingsOpenSourceSources')),
+                  subtitle: const Text('OPEN_SOURCE_SOURCES.md'),
+                  leading: const Icon(Icons.source_outlined),
+                  trailing: const Icon(Icons.open_in_new, size: 18),
+                  onTap: () => launchUrl(
+                    Uri.parse(AppConstants.openSourceSourcesUrl),
+                    mode: LaunchMode.externalApplication,
+                  ),
                 ),
                 Visibility(
                   visible: _showOrgSection,

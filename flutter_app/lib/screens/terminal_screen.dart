@@ -28,11 +28,18 @@ class _TerminalScreenState extends State<TerminalScreen> {
   var _terminalKey = GlobalKey<NativeTerminalViewState>();
   late final TerminalInputController _terminalInput;
   late Future<_NativeTerminalConfig> _configFuture;
+  late final List<_TerminalSessionTab> _sessions;
+  var _activeIndex = 0;
   var _restartOnCreate = false;
+
+  _TerminalSessionTab get _activeSession => _sessions[_activeIndex];
 
   @override
   void initState() {
     super.initState();
+    _sessions = [
+      _TerminalSessionTab(id: widget.sessionId, title: widget.title),
+    ];
     _restartOnCreate = widget.restartOnOpen;
     _terminalInput = TerminalInputController(
       onWrite: (bytes) {
@@ -70,15 +77,55 @@ class _TerminalScreenState extends State<TerminalScreen> {
     });
   }
 
+  void _newSession() {
+    final nextNumber = _sessions.length + 1;
+    final nextSession = _TerminalSessionTab(
+      id: '${widget.sessionId}-${DateTime.now().millisecondsSinceEpoch}',
+      title: '${widget.title} $nextNumber',
+    );
+    setState(() {
+      _sessions.add(nextSession);
+      _activeIndex = _sessions.length - 1;
+      _restartOnCreate = false;
+      _terminalKey = GlobalKey<NativeTerminalViewState>();
+      _configFuture = _loadConfig();
+    });
+  }
+
+  void _switchSession(int index) {
+    if (index == _activeIndex || index < 0 || index >= _sessions.length) {
+      return;
+    }
+    setState(() {
+      _activeIndex = index;
+      _restartOnCreate = false;
+      _terminalKey = GlobalKey<NativeTerminalViewState>();
+      _configFuture = _loadConfig();
+    });
+  }
+
   Future<void> _paste() async {
     await _terminalKey.currentState?.paste();
   }
 
   Future<void> _closeSession() async {
     await _terminalKey.currentState?.close();
-    if (context.mounted) {
-      Navigator.of(context).pop(true);
+    if (!context.mounted) {
+      return;
     }
+    if (_sessions.length <= 1) {
+      Navigator.of(context).pop(true);
+      return;
+    }
+    setState(() {
+      _sessions.removeAt(_activeIndex);
+      if (_activeIndex >= _sessions.length) {
+        _activeIndex = _sessions.length - 1;
+      }
+      _restartOnCreate = false;
+      _terminalKey = GlobalKey<NativeTerminalViewState>();
+      _configFuture = _loadConfig();
+    });
   }
 
   @override
@@ -90,7 +137,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         surfaceTintColor: Colors.black,
-        title: Text(widget.title),
+        title: _buildTitle(),
         actions:
             compactActions ? [_buildOverflowMenu()] : _buildToolbarActions(),
       ),
@@ -157,6 +204,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
   List<Widget> _buildToolbarActions() {
     return [
       IconButton(
+        icon: const Icon(Icons.add),
+        tooltip: 'New session',
+        onPressed: _newSession,
+      ),
+      _buildSessionMenu(),
+      IconButton(
         icon: const Icon(Icons.paste),
         tooltip: 'Paste',
         onPressed: _paste,
@@ -177,7 +230,14 @@ class _TerminalScreenState extends State<TerminalScreen> {
   Widget _buildOverflowMenu() {
     return PopupMenuButton<String>(
       onSelected: (value) {
+        if (value.startsWith('session:')) {
+          _switchSession(int.parse(value.substring('session:'.length)));
+          return;
+        }
         switch (value) {
+          case 'new':
+            _newSession();
+            break;
           case 'paste':
             _paste();
             break;
@@ -189,10 +249,74 @@ class _TerminalScreenState extends State<TerminalScreen> {
             break;
         }
       },
-      itemBuilder: (context) => const [
-        PopupMenuItem(value: 'paste', child: Text('Paste')),
-        PopupMenuItem(value: 'restart', child: Text('Restart')),
-        PopupMenuItem(value: 'close', child: Text('Close session')),
+      itemBuilder: (context) => [
+        const PopupMenuItem(value: 'new', child: Text('New session')),
+        const PopupMenuDivider(),
+        for (var i = 0; i < _sessions.length; i++)
+          PopupMenuItem(
+            value: 'session:$i',
+            child: Row(
+              children: [
+                Icon(
+                  i == _activeIndex
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: Text(_sessions[i].title)),
+              ],
+            ),
+          ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(value: 'paste', child: Text('Paste')),
+        const PopupMenuItem(value: 'restart', child: Text('Restart')),
+        const PopupMenuItem(value: 'close', child: Text('Close session')),
+      ],
+    );
+  }
+
+  Widget _buildSessionMenu() {
+    return PopupMenuButton<int>(
+      tooltip: 'Sessions',
+      icon: const Icon(Icons.tab),
+      onSelected: _switchSession,
+      itemBuilder: (context) => [
+        for (var i = 0; i < _sessions.length; i++)
+          PopupMenuItem(
+            value: i,
+            child: Row(
+              children: [
+                Icon(
+                  i == _activeIndex
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: Text(_sessions[i].title)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildTitle() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          _activeSession.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (_sessions.length > 1)
+          Text(
+            '${_activeIndex + 1}/${_sessions.length}',
+            style: const TextStyle(fontSize: 12, color: Colors.white70),
+          ),
       ],
     );
   }
@@ -203,7 +327,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
         Expanded(
           child: NativeTerminalView(
             key: _terminalKey,
-            sessionId: widget.sessionId,
+            sessionId: _activeSession.id,
             executable: config.executable,
             arguments: config.arguments,
             environment: config.environment,
@@ -231,5 +355,15 @@ class _NativeTerminalConfig {
     required this.executable,
     required this.arguments,
     required this.environment,
+  });
+}
+
+class _TerminalSessionTab {
+  final String id;
+  final String title;
+
+  const _TerminalSessionTab({
+    required this.id,
+    required this.title,
   });
 }
