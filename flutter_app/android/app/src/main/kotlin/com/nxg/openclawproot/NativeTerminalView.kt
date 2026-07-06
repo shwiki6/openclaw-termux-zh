@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TerminalSession
@@ -20,6 +21,8 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class NativeTerminalViewFactory(
     private val messenger: BinaryMessenger,
@@ -48,18 +51,22 @@ class NativeTerminalPlatformView(
     private val channel = MethodChannel(messenger, "com.openclaw.cyx/native_terminal_$viewId")
     private val sessionId = params.stringValue("sessionId") ?: "native-shell"
     private val keepAlive = params.booleanValue("keepAlive", false)
+    private var fontSize = params.intValue("fontSize", 18).coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE)
     private val client = NativeTerminalClient(
         appContext,
         terminalView,
         channel,
         params.booleanValue("emitOutput", false),
+        fontSize,
+        ::setFontSize,
+        ::focusAndShowKeyboard,
     )
     private var holder: NativeTerminalSessionHolder? = null
 
     init {
         container.setBackgroundColor(Color.BLACK)
         terminalView.setTerminalViewClient(client)
-        terminalView.setTextSize(params.intValue("fontSize", 14))
+        terminalView.setTextSize(fontSize)
         terminalView.setTypeface(Typeface.MONOSPACE)
         terminalView.isFocusable = true
         terminalView.isFocusableInTouchMode = true
@@ -72,12 +79,15 @@ class NativeTerminalPlatformView(
         )
         channel.setMethodCallHandler(this)
         attachOrCreateSession(restart = params.booleanValue("restart", false))
-        terminalView.requestFocus()
+        terminalView.post {
+            focusAndShowKeyboard()
+        }
     }
 
     override fun getView(): View = container
 
     override fun dispose() {
+        hideKeyboard()
         channel.setMethodCallHandler(null)
         val current = holder
         if (current != null) {
@@ -113,13 +123,30 @@ class NativeTerminalPlatformView(
                 if (!text.isNullOrEmpty()) {
                     holder?.session?.write(text)
                 }
+                focusAndShowKeyboard()
                 result.success(true)
+            }
+            "showKeyboard" -> {
+                focusAndShowKeyboard()
+                result.success(true)
+            }
+            "hideKeyboard" -> {
+                hideKeyboard()
+                result.success(true)
+            }
+            "setFontSize" -> {
+                val nextFontSize = (call.argument<Number>("fontSize")?.toInt() ?: fontSize)
+                    .coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE)
+                setFontSize(nextFontSize)
+                result.success(nextFontSize)
             }
             "restart" -> {
                 attachOrCreateSession(restart = true)
+                focusAndShowKeyboard()
                 result.success(true)
             }
             "close" -> {
+                hideKeyboard()
                 holder?.session?.finishIfRunning()
                 sessions.remove(sessionId)
                 result.success(true)
@@ -168,7 +195,37 @@ class NativeTerminalPlatformView(
         terminalView.updateSize()
     }
 
+    private fun focusAndShowKeyboard() {
+        terminalView.post {
+            terminalView.requestFocus()
+            val imm = appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                ?: return@post
+            imm.restartInput(terminalView)
+            imm.showSoftInput(terminalView, InputMethodManager.SHOW_IMPLICIT)
+            terminalView.postDelayed({
+                imm.showSoftInput(terminalView, InputMethodManager.SHOW_IMPLICIT)
+            }, 80)
+        }
+    }
+
+    private fun hideKeyboard() {
+        val imm = appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            ?: return
+        imm.hideSoftInputFromWindow(terminalView.windowToken, 0)
+    }
+
+    private fun setFontSize(nextFontSize: Int) {
+        val clamped = nextFontSize.coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE)
+        if (clamped == fontSize) return
+        fontSize = clamped
+        client.fontSize = clamped
+        terminalView.setTextSize(clamped)
+        terminalView.updateSize()
+    }
+
     companion object {
+        private const val MIN_FONT_SIZE = 12
+        private const val MAX_FONT_SIZE = 32
         private val sessions = mutableMapOf<String, NativeTerminalSessionHolder>()
     }
 }
@@ -211,6 +268,9 @@ private class NativeTerminalClient(
     private val terminalView: TerminalView,
     private val channel: MethodChannel,
     private val emitOutput: Boolean,
+    var fontSize: Int,
+    private val setFontSize: (Int) -> Unit,
+    private val showKeyboard: () -> Unit,
 ) : TerminalSessionClient, TerminalViewClient {
     private var controlDown = false
     private var altDown = false
@@ -266,10 +326,17 @@ private class NativeTerminalClient(
 
     override fun getTerminalCursorStyle(): Int = TerminalEmulator.DEFAULT_TERMINAL_CURSOR_STYLE
 
-    override fun onScale(scale: Float): Float = scale.coerceIn(0.7f, 1.4f)
+    override fun onScale(scale: Float): Float {
+        if (scale.isNaN() || scale.isInfinite()) return 1.0f
+        val nextFontSize = (fontSize * scale).roundToInt().coerceIn(12, 32)
+        if (abs(nextFontSize - fontSize) >= 1) {
+            setFontSize(nextFontSize)
+        }
+        return 1.0f
+    }
 
     override fun onSingleTapUp(e: MotionEvent) {
-        terminalView.requestFocus()
+        showKeyboard()
     }
 
     override fun shouldBackButtonBeMappedToEscape(): Boolean = false

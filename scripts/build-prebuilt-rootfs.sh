@@ -74,17 +74,17 @@ case "$ARCH" in
   arm64)
     ROOTFS_ARCH="arm64"
     QEMU_BIN="qemu-aarch64-static"
-    DEFAULT_MIRROR="http://ports.ubuntu.com/ubuntu-ports"
+    DEFAULT_MIRROR="http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports"
     ;;
   armhf)
     ROOTFS_ARCH="armhf"
     QEMU_BIN="qemu-arm-static"
-    DEFAULT_MIRROR="http://ports.ubuntu.com/ubuntu-ports"
+    DEFAULT_MIRROR="http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports"
     ;;
   amd64)
     ROOTFS_ARCH="amd64"
     QEMU_BIN="qemu-x86_64-static"
-    DEFAULT_MIRROR="http://archive.ubuntu.com/ubuntu"
+    DEFAULT_MIRROR="http://mirrors.tuna.tsinghua.edu.cn/ubuntu"
     ;;
   *)
     echo "Unsupported arch: $ARCH" >&2
@@ -94,7 +94,7 @@ esac
 
 MIRROR="${MIRROR:-$DEFAULT_MIRROR}"
 BASE_NAME="ubuntu-base-${UBUNTU_VERSION}-base-${ROOTFS_ARCH}.tar.gz"
-BASE_URL="https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/$BASE_NAME"
+BASE_URL="https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/ubuntu-base/releases/24.04/release/$BASE_NAME"
 OUTPUT_NAME="openclaw-rootfs-${CODENAME}-${ROOTFS_ARCH}.tar.gz"
 WORK_DIR="$WORK_BASE/$ROOTFS_ARCH"
 ROOTFS_DIR="$WORK_DIR/rootfs"

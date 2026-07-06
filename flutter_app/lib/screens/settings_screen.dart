@@ -449,7 +449,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 ListTile(
                   title: Text(l10n.t('settingsLicense')),
-                  subtitle: const Text(AppConstants.license),
+                  subtitle: const Text(AppConstants.licenseSummary),
                   leading: const Icon(Icons.description),
                 ),
                 Visibility(

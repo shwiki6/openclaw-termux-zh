@@ -148,7 +148,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final l10n = context.l10n;
 
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        surfaceTintColor: Colors.black,
         title: Text(l10n.t('onboardingTitle')),
         leading: widget.isFirstRun
             ? null
@@ -174,43 +178,52 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         future: _commandFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
-            return ResponsiveLayout.scrollableCenter(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 16),
-                  Text(l10n.t('onboardingStarting')),
-                ],
+            return ColoredBox(
+              color: Colors.black,
+              child: ResponsiveLayout.scrollableCenter(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 16),
+                    Text(
+                      l10n.t('onboardingStarting'),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ],
+                ),
               ),
             );
           }
 
           if (snapshot.hasError || !snapshot.hasData) {
-            return ResponsiveLayout.scrollableCenter(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 48,
-                    color: Theme.of(context).colorScheme.error,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    l10n.t('onboardingStartFailed', {
-                      'error': '${snapshot.error ?? 'unknown'}',
-                    }),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: _restart,
-                    icon: const Icon(Icons.refresh),
-                    label: Text(l10n.t('commonRetry')),
-                  ),
-                ],
+            return ColoredBox(
+              color: Colors.black,
+              child: ResponsiveLayout.scrollableCenter(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Colors.redAccent,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      l10n.t('onboardingStartFailed', {
+                        'error': '${snapshot.error ?? 'unknown'}',
+                      }),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: _restart,
+                      icon: const Icon(Icons.refresh),
+                      label: Text(l10n.t('commonRetry')),
+                    ),
+                  ],
+                ),
               ),
             );
           }

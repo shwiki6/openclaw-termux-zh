@@ -88,9 +88,10 @@ class BootstrapService {
   Future<_PreparedArchiveSource> _prepareBundledOrCachedArchive({
     required String assetPath,
     required String destinationPath,
+    int minimumBytes = 1,
   }) async {
     final file = File(destinationPath);
-    if (file.existsSync() && file.lengthSync() > 0) {
+    if (file.existsSync() && file.lengthSync() >= minimumBytes) {
       return _PreparedArchiveSource.cached;
     }
     if (file.existsSync()) {
@@ -104,9 +105,10 @@ class BootstrapService {
         assetPath: assetPath,
         destinationPath: destinationPath,
       );
-      if (file.existsSync() && file.lengthSync() > 0) {
+      if (file.existsSync() && file.lengthSync() >= minimumBytes) {
         return _PreparedArchiveSource.bundled;
       }
+      _deleteArchiveIfExists(destinationPath);
     } catch (_) {
       return _PreparedArchiveSource.none;
     }
@@ -151,6 +153,7 @@ class BootstrapService {
 
   Future<void> _downloadStepArchive({
     required String url,
+    List<String> fallbackUrls = const [],
     required String destinationPath,
     required void Function(SetupState) onProgress,
     required SetupStep step,
@@ -170,29 +173,52 @@ class BootstrapService {
       message: idleMessage,
     );
 
-    final tracker = _TransferProgressTracker();
-    await _dio.download(
+    Object? lastError;
+    final candidates = <String>[
       url,
-      destinationPath,
-      onReceiveProgress: (received, total) {
-        if (total <= 0) {
-          return;
-        }
-        final downloadRatio = received / total;
-        final progress =
-            startProgress + ((endProgress - startProgress) * downloadRatio);
-        final currentMb = (received / 1024 / 1024).toStringAsFixed(1);
-        final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
-        final details = tracker.describe(received, total);
-        _emitProgress(
-          onProgress: onProgress,
-          step: step,
-          progress: progress,
-          message: idleMessage,
-          detail: detailBuilder(currentMb, totalMb, details),
+      ...fallbackUrls,
+    ].where((candidate) => candidate.trim().isNotEmpty).toSet().toList();
+
+    for (var index = 0; index < candidates.length; index++) {
+      final candidate = candidates[index];
+      final tracker = _TransferProgressTracker();
+      try {
+        await _dio.download(
+          candidate,
+          destinationPath,
+          onReceiveProgress: (received, total) {
+            if (total <= 0) {
+              return;
+            }
+            final downloadRatio = received / total;
+            final progress =
+                startProgress + ((endProgress - startProgress) * downloadRatio);
+            final currentMb = (received / 1024 / 1024).toStringAsFixed(1);
+            final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
+            final details = tracker.describe(received, total);
+            final source = candidates.length > 1
+                ? 'source ${index + 1}/${candidates.length}'
+                : '';
+            _emitProgress(
+              onProgress: onProgress,
+              step: step,
+              progress: progress,
+              message: idleMessage,
+              detail: [
+                detailBuilder(currentMb, totalMb, details),
+                source,
+              ].where((part) => part.isNotEmpty).join(' | '),
+            );
+          },
         );
-      },
-    );
+        return;
+      } catch (error) {
+        lastError = error;
+        _deleteArchiveIfExists(destinationPath);
+      }
+    }
+
+    throw lastError ?? Exception('Download failed: $url');
   }
 
   Future<String> _selectUbuntuMirror(String arch) async {
@@ -412,7 +438,8 @@ class BootstrapService {
 
       // Step 1: Download rootfs
       final arch = await NativeBridge.getArch();
-      final rootfsUrl = AppConstants.getRootfsUrl(arch);
+      final rootfsUrls = AppConstants.getRootfsUrlCandidates(arch);
+      final rootfsUrl = rootfsUrls.first;
       final filesDir = await NativeBridge.getFilesDir();
 
       // Direct Dart fallback: ensure config dir + resolv.conf exist (#40).
@@ -483,6 +510,7 @@ class BootstrapService {
             prebuiltSource = await _prepareBundledOrCachedArchive(
               assetPath: prebuiltRootfsAssetPath,
               destinationPath: prebuiltTarPath,
+              minimumBytes: 10 * 1024 * 1024,
             );
           }
 
@@ -594,6 +622,7 @@ class BootstrapService {
             rootfsSource = await _prepareBundledOrCachedArchive(
               assetPath: rootfsAssetPath,
               destinationPath: tarPath,
+              minimumBytes: 10 * 1024 * 1024,
             );
           }
 
@@ -638,6 +667,7 @@ class BootstrapService {
           } else {
             await _downloadStepArchive(
               url: rootfsUrl,
+              fallbackUrls: rootfsUrls.skip(1).toList(),
               destinationPath: tarPath,
               onProgress: onProgress,
               step: SetupStep.downloadingRootfs,
@@ -663,6 +693,7 @@ class BootstrapService {
             } catch (_) {}
             await _downloadStepArchive(
               url: rootfsUrl,
+              fallbackUrls: rootfsUrls.skip(1).toList(),
               destinationPath: tarPath,
               onProgress: onProgress,
               step: SetupStep.downloadingRootfs,
@@ -820,7 +851,8 @@ class BootstrapService {
         // Download directly from nodejs.org (bypasses curl/gpg/NodeSource
         // which fail inside proot). Includes node + npm + corepack.
         final nodeVersion = AppConstants.getNodeVersionForArch(arch);
-        final nodeTarUrl = AppConstants.getNodeTarballUrl(arch);
+        final nodeTarUrls = AppConstants.getNodeTarballUrlCandidates(arch);
+        final nodeTarUrl = nodeTarUrls.first;
         final nodeTarPath = '$filesDir/tmp/nodejs.tar.xz';
         final nodeAssetPath =
             AppConstants.bundledBootstrapAssetPathForUrl(nodeTarUrl);
@@ -853,6 +885,7 @@ class BootstrapService {
           nodeSource = await _prepareBundledOrCachedArchive(
             assetPath: nodeAssetPath,
             destinationPath: nodeTarPath,
+            minimumBytes: 10 * 1024 * 1024,
           );
         }
         final nodeFromLocal = nodeSource != _PreparedArchiveSource.none;
@@ -895,6 +928,7 @@ class BootstrapService {
         } else {
           await _downloadStepArchive(
             url: nodeTarUrl,
+            fallbackUrls: nodeTarUrls.skip(1).toList(),
             destinationPath: nodeTarPath,
             onProgress: onProgress,
             step: SetupStep.installingNode,
@@ -926,6 +960,7 @@ class BootstrapService {
           } catch (_) {}
           await _downloadStepArchive(
             url: nodeTarUrl,
+            fallbackUrls: nodeTarUrls.skip(1).toList(),
             destinationPath: nodeTarPath,
             onProgress: onProgress,
             step: SetupStep.installingNode,

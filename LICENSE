@@ -1,21 +1,32 @@
+Project-Owned Code License
+
+Unless otherwise noted, project-owned source code in this repository is
+licensed under the MIT License below.
+
+Third-party dependencies, bundled binaries, runtime downloads, fonts, assets,
+Linux rootfs packages, SDKs, and generated distributions remain under their
+respective licenses. See THIRD_PARTY_NOTICES.md and OPEN_SOURCE_SOURCES.md.
+
 MIT License
 
+Copyright (c) 2026 OpenClaw Termux Zh contributors
 Copyright (c) 2026 Mithun Gowda B
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+in the project-owned Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+sell copies of the project-owned Software, and to permit persons to whom the
+project-owned Software is furnished to do so, subject to the following
+conditions:
 
 The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+copies or substantial portions of the project-owned Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+THE PROJECT-OWNED SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES
+OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE PROJECT-OWNED SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE PROJECT-OWNED SOFTWARE.

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -28,7 +29,7 @@ class NativeTerminalView extends StatefulWidget {
     this.restart = false,
     this.keepAlive = false,
     this.emitOutput = false,
-    this.fontSize = 14,
+    this.fontSize = 18,
     this.onOutput,
     this.onSessionFinished,
     this.onTitleChanged,
@@ -53,6 +54,18 @@ class NativeTerminalViewState extends State<NativeTerminalView> {
     await _channel?.invokeMethod('paste');
   }
 
+  Future<void> showKeyboard() async {
+    await _channel?.invokeMethod('showKeyboard');
+  }
+
+  Future<void> hideKeyboard() async {
+    await _channel?.invokeMethod('hideKeyboard');
+  }
+
+  Future<void> setFontSize(int fontSize) async {
+    await _channel?.invokeMethod('setFontSize', {'fontSize': fontSize});
+  }
+
   Future<void> restart() async {
     await _channel?.invokeMethod('restart');
   }
@@ -75,7 +88,7 @@ class NativeTerminalViewState extends State<NativeTerminalView> {
       );
     }
 
-    return AndroidView(
+    final androidView = AndroidView(
       viewType: 'openclaw/native_terminal',
       creationParamsCodec: const StandardMessageCodec(),
       creationParams: {
@@ -94,7 +107,13 @@ class NativeTerminalViewState extends State<NativeTerminalView> {
         final channel = MethodChannel('com.openclaw.cyx/native_terminal_$id');
         channel.setMethodCallHandler(_handleMethodCall);
         _channel = channel;
+        unawaited(showKeyboard());
       },
+    );
+
+    return ColoredBox(
+      color: Colors.black,
+      child: SizedBox.expand(child: androidView),
     );
   }
 

@@ -54,7 +54,11 @@ class _WeixinInstallerScreenState extends State<WeixinInstallerScreen> {
     final l10n = context.l10n;
 
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        surfaceTintColor: Colors.black,
         title: Text(l10n.t('messagePlatformDetailWeixinTerminalTitle')),
         actions: [
           IconButton(

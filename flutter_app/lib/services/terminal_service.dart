@@ -16,6 +16,9 @@ class TerminalService {
   static const _fakeKernelRelease = '6.17.0-PRoot-Distro';
   static const _fakeKernelVersion =
       '#1 SMP PREEMPT_DYNAMIC Fri, 10 Oct 2025 00:00:00 +0000';
+  static const _terminalProfilePath = 'root/.openclaw/terminal-profile.sh';
+  static const _terminalProfileSource =
+      '. /root/.openclaw/terminal-profile.sh';
 
   /// Get paths and host-side proot environment variables.
   /// Host env should ONLY contain proot-specific vars; guest env is
@@ -55,6 +58,7 @@ class TerminalService {
         .join(':');
 
     final storageGranted = await NativeBridge.hasStoragePermission();
+    await _ensureTerminalShellProfile();
 
     return {
       'executable': prootPath,
@@ -161,9 +165,14 @@ class TerminalService {
       'LANG=C.UTF-8',
       'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       'TERM=xterm-256color',
+      'COLORTERM=truecolor',
       'TMPDIR=/tmp',
       'npm_config_cache=/tmp/npm-cache',
-      'npm_config_registry=https://registry.npmmirror.com',
+      'npm_config_registry=${AppConstants.npmRegistryUrl}',
+      'npm_config_color=always',
+      'CLICOLOR=1',
+      'CLICOLOR_FORCE=1',
+      'FORCE_COLOR=1',
       'COLUMNS=$columns',
       'LINES=$rows',
       'NODE_OPTIONS=--require /root/.openclaw/bionic-bypass.js',
@@ -174,6 +183,48 @@ class TerminalService {
     ]);
 
     return args;
+  }
+
+  static Future<void> _ensureTerminalShellProfile() async {
+    try {
+      final profile = [
+        '# OpenClaw terminal profile. This file is managed by the app.',
+        r'export TERM="${TERM:-xterm-256color}"',
+        r'export COLORTERM="${COLORTERM:-truecolor}"',
+        'export CLICOLOR=1',
+        'export CLICOLOR_FORCE=1',
+        'export FORCE_COLOR=1',
+        'export npm_config_color=always',
+        'export npm_config_registry=${AppConstants.npmRegistryUrl}',
+        'export npm_config_disturl=${AppConstants.npmNodeDistUrl}',
+        r'export LS_COLORS="${LS_COLORS:-di=01;34:ln=01;36:so=01;35:pi=33:ex=01;32:bd=33;01:cd=33;01:or=31;01:mi=31;01:*.tar=01;31:*.tgz=01;31:*.zip=01;31:*.gz=01;31:*.xz=01;31}"',
+        "alias ls='ls --color=auto'",
+        "alias grep='grep --color=auto'",
+        "alias egrep='egrep --color=auto'",
+        "alias fgrep='fgrep --color=auto'",
+        r"export PS1='\[\e[1;32m\]\u@openclaw\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '",
+        '',
+      ].join('\n');
+      await NativeBridge.writeRootfsFile(_terminalProfilePath, profile);
+      await _appendProfileSourceIfNeeded('root/.bashrc');
+      await _appendProfileSourceIfNeeded('root/.profile');
+    } catch (_) {}
+  }
+
+  static Future<void> _appendProfileSourceIfNeeded(String rootfsPath) async {
+    final current = await NativeBridge.readRootfsFile(rootfsPath) ?? '';
+    if (current.contains(_terminalProfileSource)) {
+      return;
+    }
+    final next = [
+      current.trimRight(),
+      '',
+      'if [ -f /root/.openclaw/terminal-profile.sh ]; then',
+      '  $_terminalProfileSource',
+      'fi',
+      '',
+    ].join('\n');
+    await NativeBridge.writeRootfsFile(rootfsPath, next);
   }
 
   static List<String> replaceLoginShell(

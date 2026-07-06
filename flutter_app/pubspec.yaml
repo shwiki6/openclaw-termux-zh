@@ -27,7 +27,7 @@ dependencies:
   uuid: ^4.2.0
   camera: ^0.11.0
   geolocator: ^12.0.0
-  flutter_blue_plus: ^1.32.0
+  flutter_blue_plus: 1.35.12
   usb_serial: ^0.5.1
   flutter_markdown_plus: ^1.0.7
 
@@ -42,6 +42,8 @@ flutter:
     - assets/bionic_bypass.js
     - assets/resolv.conf
     - assets/ic_launcher.png
+    - assets/bootstrap/ubuntu-base-24.04.3-base-arm64.tar.gz
+    - assets/bootstrap/node-v24.14.1-linux-arm64.tar.xz
     - assets/sample_configs/openclaw/
   fonts:
     - family: DejaVuSansMono

@@ -23,7 +23,7 @@ class NativeProotTerminal extends StatefulWidget {
     this.mode = TerminalProotMode.fast,
     this.keepAlive = false,
     this.restart = false,
-    this.fontSize = 14,
+    this.fontSize = 18,
     this.emitOutput = false,
     this.onOutput,
     this.onSessionFinished,
@@ -90,24 +90,34 @@ class NativeProotTerminalState extends State<NativeProotTerminal> {
       future: _configFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
-          return ResponsiveLayout.scrollableCenter(
-            child: const Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Starting native terminal...'),
-              ],
+          return ColoredBox(
+            color: Colors.black,
+            child: ResponsiveLayout.scrollableCenter(
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text(
+                    'Starting native terminal...',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ],
+              ),
             ),
           );
         }
 
         final error = snapshot.error;
         if (error != null || !snapshot.hasData) {
-          return ResponsiveLayout.scrollableCenter(
-            child: Text(
-              error?.toString() ?? 'Failed to start terminal',
-              textAlign: TextAlign.center,
+          return ColoredBox(
+            color: Colors.black,
+            child: ResponsiveLayout.scrollableCenter(
+              child: Text(
+                error?.toString() ?? 'Failed to start terminal',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white),
+              ),
             ),
           );
         }

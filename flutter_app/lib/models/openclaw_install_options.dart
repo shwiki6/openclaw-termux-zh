@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import '../constants.dart';
 import '../l10n/app_localizations.dart';
 
 const String fallbackRecommendedOpenClawReleaseVersion = '2026.6.11';
@@ -123,10 +124,18 @@ class OpenClawInstallOptions {
         '--no-audit',
         '--no-fund',
         '--no-progress',
+        '--registry=${AppConstants.npmRegistryUrl}',
         if (ignoreScripts) '--ignore-scripts',
       ];
 
   Map<String, String> get installEnvironment => {
+        'npm_config_registry': AppConstants.npmRegistryUrl,
+        'npm_config_disturl': AppConstants.npmNodeDistUrl,
+        'npm_config_audit': 'false',
+        'npm_config_fund': 'false',
+        'npm_config_progress': 'false',
+        'npm_config_update_notifier': 'false',
+        'npm_config_fetch_retries': '3',
         'npm_package_config_node_gyp_jobs': '$resolvedParallelJobs',
         'MAKEFLAGS': '-j$resolvedParallelJobs',
         'CMAKE_BUILD_PARALLEL_LEVEL': '$resolvedParallelJobs',

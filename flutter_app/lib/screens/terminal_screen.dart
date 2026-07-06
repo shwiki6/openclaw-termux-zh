@@ -85,50 +85,64 @@ class _TerminalScreenState extends State<TerminalScreen> {
   Widget build(BuildContext context) {
     final compactActions = MediaQuery.sizeOf(context).width < 380;
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        surfaceTintColor: Colors.black,
         title: Text(widget.title),
-        actions: compactActions ? [_buildOverflowMenu()] : _buildToolbarActions(),
+        actions:
+            compactActions ? [_buildOverflowMenu()] : _buildToolbarActions(),
       ),
       body: FutureBuilder<_NativeTerminalConfig>(
         future: _configFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
-            return ResponsiveLayout.scrollableCenter(
-              child: const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Starting native terminal...'),
-                ],
+            return ColoredBox(
+              color: Colors.black,
+              child: ResponsiveLayout.scrollableCenter(
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text(
+                      'Starting native terminal...',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ],
+                ),
               ),
             );
           }
 
           final error = snapshot.error;
           if (error != null || !snapshot.hasData) {
-            return ResponsiveLayout.scrollableCenter(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 48,
-                    color: Theme.of(context).colorScheme.error,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    error?.toString() ?? 'Failed to start terminal',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: _restart,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Retry'),
-                  ),
-                ],
+            return ColoredBox(
+              color: Colors.black,
+              child: ResponsiveLayout.scrollableCenter(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Colors.redAccent,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      error?.toString() ?? 'Failed to start terminal',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: _restart,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
               ),
             );
           }
@@ -195,7 +209,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
             environment: config.environment,
             restart: _restartOnCreate,
             keepAlive: true,
-            fontSize: 14,
+            fontSize: 18,
           ),
         ),
         TerminalToolbar(

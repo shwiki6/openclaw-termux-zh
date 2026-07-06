@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import '../app.dart';
 
 /// Termux-style extra keys toolbar for terminal screens.
 /// Provides ESC, CTRL, ALT, TAB, arrows, and common special characters.
@@ -104,12 +103,10 @@ class _TerminalToolbarState extends State<TerminalToolbar> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final bgColor = isDark ? AppColors.darkBg : const Color(0xFFE0E0E0);
-    final btnColor = isDark ? AppColors.darkSurfaceAlt : const Color(0xFFEEEEEE);
-    const activeColor = AppColors.accent;
-    final textColor = isDark ? Colors.white70 : Colors.black87;
+    const bgColor = Colors.black;
+    const btnColor = Color(0xFF161616);
+    const activeColor = Color(0xFF00C853);
+    const textColor = Colors.white;
 
     Widget keyButton(String label, {VoidCallback? onTap, String? sendData, bool active = false, double? width}) {
       return Padding(

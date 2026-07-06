@@ -9,11 +9,13 @@ class AppConstants {
   static const String authorName = 'JunWan';
   static const String authorEmail = 'susuya0712@gmail.com';
   static const String githubUrl =
-      'https://github.com/JunWan666/openclaw-termux-zh';
-  static const String license = 'MIT';
+      'https://github.com/shwiki6/openclaw-termux-zh';
+  static const String license = 'MIT for project-owned code';
+  static const String licenseSummary =
+      'Project-owned code is MIT; third-party components keep their own licenses.';
 
   static const String githubApiLatestRelease =
-      'https://api.github.com/repos/JunWan666/openclaw-termux-zh/releases/latest';
+      'https://api.github.com/repos/shwiki6/openclaw-termux-zh/releases/latest';
 
   // NextGenX
   static const String orgName = 'NextGenX';
@@ -29,8 +31,15 @@ class AppConstants {
   static const int gatewayPort = 18789;
   static const String gatewayUrl = 'http://$gatewayHost:$gatewayPort';
 
-  static const String ubuntuRootfsUrl =
+  static const String ubuntuBaseMirrorUrl =
+      'https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-';
+  static const String ubuntuBaseMirrorFallbackUstcUrl =
+      'https://mirrors.ustc.edu.cn/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-';
+  static const String ubuntuBaseMirrorFallbackAliyunUrl =
+      'https://mirrors.aliyun.com/ubuntu-cdimage/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-';
+  static const String ubuntuBaseOfficialUrl =
       'https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-';
+  static const String ubuntuRootfsUrl = ubuntuBaseMirrorUrl;
   static const String ubuntuCodename = 'noble';
   static const String bundledBootstrapAssetDir = 'assets/bootstrap';
   static const String rootfsArm64 = '${ubuntuRootfsUrl}arm64.tar.gz';
@@ -43,8 +52,14 @@ class AppConstants {
   static const String nodeVersion = '24.14.1';
   static const String nodeArmv7Version = '22.22.2';
   static const String openClawEstimatedSize = '~95 MB';
-  static const String nodeBaseUrl =
+  static const String nodeMirrorBaseUrl =
+      'https://npmmirror.com/mirrors/node/v$nodeVersion/node-v$nodeVersion-linux-';
+  static const String nodeOfficialBaseUrl =
       'https://nodejs.org/dist/v$nodeVersion/node-v$nodeVersion-linux-';
+  static const String nodeBaseUrl = nodeMirrorBaseUrl;
+  static const String npmRegistryUrl = 'https://registry.npmmirror.com';
+  static const String npmRegistryFallbackUrl = 'https://registry.npmjs.org';
+  static const String npmNodeDistUrl = 'https://npmmirror.com/mirrors/node';
   static const String basicResourceReleaseBaseUrl =
       'https://github.com/JunWan666/openclaw-termux-zh/releases/download/basic-resource';
   static const String basicResourcePrebuiltRootfsArm64 =
@@ -74,19 +89,45 @@ class AppConstants {
   }
 
   static String getNodeTarballUrlForVersion(String arch, String version) {
-    final nodeBaseUrl =
+    return getNodeTarballUrlCandidatesForVersion(arch, version).first;
+  }
+
+  static List<String> getNodeTarballUrlCandidates(String arch) {
+    return getNodeTarballUrlCandidatesForVersion(
+      arch,
+      getNodeVersionForArch(arch),
+    );
+  }
+
+  static List<String> getNodeTarballUrlCandidatesForVersion(
+    String arch,
+    String version,
+  ) {
+    final mirrorBaseUrl =
+        'https://npmmirror.com/mirrors/node/v$version/node-v$version-linux-';
+    final officialBaseUrl =
         'https://nodejs.org/dist/v$version/node-v$version-linux-';
+
+    String suffix;
 
     switch (arch) {
       case 'aarch64':
-        return '${nodeBaseUrl}arm64.tar.xz';
+        suffix = 'arm64.tar.xz';
+        break;
       case 'arm':
-        return '${nodeBaseUrl}armv7l.tar.xz';
+        suffix = 'armv7l.tar.xz';
+        break;
       case 'x86_64':
-        return '${nodeBaseUrl}x64.tar.xz';
+        suffix = 'x64.tar.xz';
+        break;
       default:
-        return '${nodeBaseUrl}arm64.tar.xz';
+        suffix = 'arm64.tar.xz';
     }
+
+    return [
+      '$mirrorBaseUrl$suffix',
+      '$officialBaseUrl$suffix',
+    ];
   }
 
   static String bundledBootstrapAssetPathForUrl(String url) {
@@ -177,15 +218,30 @@ class AppConstants {
       'com.openclaw.cyx/setup_logs';
 
   static String getRootfsUrl(String arch) {
+    return getRootfsUrlCandidates(arch).first;
+  }
+
+  static List<String> getRootfsUrlCandidates(String arch) {
+    String suffix;
     switch (arch) {
       case 'aarch64':
-        return rootfsArm64;
+        suffix = 'arm64.tar.gz';
+        break;
       case 'arm':
-        return rootfsArmhf;
+        suffix = 'armhf.tar.gz';
+        break;
       case 'x86_64':
-        return rootfsAmd64;
+        suffix = 'amd64.tar.gz';
+        break;
       default:
-        return rootfsArm64;
+        suffix = 'arm64.tar.gz';
     }
+
+    return [
+      '$ubuntuBaseMirrorUrl$suffix',
+      '$ubuntuBaseMirrorFallbackUstcUrl$suffix',
+      '$ubuntuBaseMirrorFallbackAliyunUrl$suffix',
+      '$ubuntuBaseOfficialUrl$suffix',
+    ];
   }
 }

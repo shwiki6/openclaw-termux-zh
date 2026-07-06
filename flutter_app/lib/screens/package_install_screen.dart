@@ -60,7 +60,11 @@ class _PackageInstallScreenState extends State<PackageInstallScreen> {
     final action = widget.isUninstall ? 'Uninstall' : 'Install';
 
     return Scaffold(
+      backgroundColor: Colors.black,
       appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        surfaceTintColor: Colors.black,
         title: Text('$action ${widget.package.name}'),
         automaticallyImplyLeading: false,
         actions: [

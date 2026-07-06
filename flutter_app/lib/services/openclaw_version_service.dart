@@ -87,9 +87,14 @@ class OpenClawReleaseInfo {
 class OpenClawVersionService {
   static const _packageJsonPath =
       'usr/local/lib/node_modules/openclaw/package.json';
-  static const _packageRegistryEndpoint = 'https://registry.npmjs.org/openclaw';
+  static const _packageRegistryEndpoint =
+      '${AppConstants.npmRegistryUrl}/openclaw';
+  static const _packageRegistryFallbackEndpoint =
+      '${AppConstants.npmRegistryFallbackUrl}/openclaw';
   static const _latestReleaseEndpoint =
-      'https://registry.npmjs.org/openclaw/latest';
+      '${AppConstants.npmRegistryUrl}/openclaw/latest';
+  static const _latestReleaseFallbackEndpoint =
+      '${AppConstants.npmRegistryFallbackUrl}/openclaw/latest';
   static const defaultAvailableReleaseLimit = 10;
   static const _nodePathMarker = '__OPENCLAW_NODE_PATH__';
   static const _nodeWrapper = '/root/.openclaw/node-wrapper.js';
@@ -173,6 +178,7 @@ class OpenClawVersionService {
 
   Future<void> _downloadWithProgress({
     required String url,
+    List<String> fallbackUrls = const [],
     required String destinationPath,
     required OpenClawInstallProgressCallback? onProgress,
     required double startProgress,
@@ -190,28 +196,100 @@ class OpenClawVersionService {
       message: idleMessage,
     );
 
-    final tracker = _TransferProgressTracker();
-    await _dio.download(
+    Object? lastError;
+    final candidates = <String>[
       url,
-      destinationPath,
-      onReceiveProgress: (received, total) {
-        if (total <= 0) {
-          return;
-        }
-        final ratio = received / total;
-        final progress =
-            startProgress + ((endProgress - startProgress) * ratio);
-        final currentMb = (received / 1024 / 1024).toStringAsFixed(1);
-        final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
-        final details = tracker.describe(received, total);
-        _emitProgress(
-          onProgress,
-          progress: progress,
-          message: idleMessage,
-          detail: detailBuilder(currentMb, totalMb, details),
+      ...fallbackUrls,
+    ].where((candidate) => candidate.trim().isNotEmpty).toSet().toList();
+
+    for (var index = 0; index < candidates.length; index++) {
+      final candidate = candidates[index];
+      final tracker = _TransferProgressTracker();
+      try {
+        await _dio.download(
+          candidate,
+          destinationPath,
+          onReceiveProgress: (received, total) {
+            if (total <= 0) {
+              return;
+            }
+            final ratio = received / total;
+            final progress =
+                startProgress + ((endProgress - startProgress) * ratio);
+            final currentMb = (received / 1024 / 1024).toStringAsFixed(1);
+            final totalMb = (total / 1024 / 1024).toStringAsFixed(1);
+            final details = tracker.describe(received, total);
+            final transferDetail = detailBuilder(currentMb, totalMb, details);
+            final source = candidates.length > 1
+                ? 'source ${index + 1}/${candidates.length}'
+                : '';
+            _emitProgress(
+              onProgress,
+              progress: progress,
+              message: idleMessage,
+              detail: [
+                transferDetail,
+                source,
+              ].where((part) => part.isNotEmpty).join(' | '),
+            );
+          },
         );
-      },
-    );
+        return;
+      } catch (error) {
+        lastError = error;
+        try {
+          final file = File(destinationPath);
+          if (file.existsSync()) {
+            file.deleteSync();
+          }
+        } catch (_) {}
+      }
+    }
+
+    throw lastError ?? Exception('Download failed: $url');
+  }
+
+  Future<http.Response> _getJsonFromCandidates(
+    List<String> urls, {
+    required Duration timeout,
+  }) async {
+    Object? lastError;
+    for (final url in urls.where((candidate) => candidate.trim().isNotEmpty)) {
+      try {
+        final response = await http.get(
+          Uri.parse(url),
+          headers: const {'Accept': 'application/json'},
+        ).timeout(timeout);
+        if (response.statusCode == 200) {
+          return response;
+        }
+        lastError = Exception('npm registry returned ${response.statusCode}');
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError ?? Exception('npm registry request failed');
+  }
+
+  List<String> _npmTarballFallbackUrls(String tarballUrl) {
+    final trimmed = tarballUrl.trim();
+    if (trimmed.startsWith(AppConstants.npmRegistryUrl)) {
+      return [
+        trimmed.replaceFirst(
+          AppConstants.npmRegistryUrl,
+          AppConstants.npmRegistryFallbackUrl,
+        ),
+      ];
+    }
+    if (trimmed.startsWith(AppConstants.npmRegistryFallbackUrl)) {
+      return [
+        trimmed.replaceFirst(
+          AppConstants.npmRegistryFallbackUrl,
+          AppConstants.npmRegistryUrl,
+        ),
+      ];
+    }
+    return const [];
   }
 
   Future<StreamSubscription<String>?> _startLiveDetailStream(
@@ -325,14 +403,13 @@ class OpenClawVersionService {
   }
 
   Future<OpenClawReleaseInfo> fetchLatestRelease() async {
-    final response = await http.get(
-      Uri.parse(_latestReleaseEndpoint),
-      headers: const {'Accept': 'application/json'},
-    ).timeout(const Duration(seconds: 12));
-
-    if (response.statusCode != 200) {
-      throw Exception('npm registry returned ${response.statusCode}');
-    }
+    final response = await _getJsonFromCandidates(
+      [
+        _latestReleaseEndpoint,
+        _latestReleaseFallbackEndpoint,
+      ],
+      timeout: const Duration(seconds: 12),
+    );
 
     final decoded = jsonDecode(response.body);
     if (decoded is! Map<String, dynamic>) {
@@ -358,14 +435,13 @@ class OpenClawVersionService {
       throw Exception('Version cannot be empty');
     }
 
-    final response = await http.get(
-      Uri.parse('$_packageRegistryEndpoint/$normalizedVersion'),
-      headers: const {'Accept': 'application/json'},
-    ).timeout(const Duration(seconds: 12));
-
-    if (response.statusCode != 200) {
-      throw Exception('npm registry returned ${response.statusCode}');
-    }
+    final response = await _getJsonFromCandidates(
+      [
+        '$_packageRegistryEndpoint/$normalizedVersion',
+        '$_packageRegistryFallbackEndpoint/$normalizedVersion',
+      ],
+      timeout: const Duration(seconds: 12),
+    );
 
     final decoded = jsonDecode(response.body);
     if (decoded is! Map<String, dynamic>) {
@@ -380,14 +456,13 @@ class OpenClawVersionService {
   }
 
   Future<List<OpenClawReleaseInfo>> fetchAvailableReleases({int? limit}) async {
-    final response = await http.get(
-      Uri.parse(_packageRegistryEndpoint),
-      headers: const {'Accept': 'application/json'},
-    ).timeout(const Duration(seconds: 15));
-
-    if (response.statusCode != 200) {
-      throw Exception('npm registry returned ${response.statusCode}');
-    }
+    final response = await _getJsonFromCandidates(
+      [
+        _packageRegistryEndpoint,
+        _packageRegistryFallbackEndpoint,
+      ],
+      timeout: const Duration(seconds: 15),
+    );
 
     final decoded = jsonDecode(response.body);
     if (decoded is! Map<String, dynamic>) {
@@ -555,6 +630,7 @@ class OpenClawVersionService {
         if (!packageFile.existsSync() || packageFile.lengthSync() <= 0) {
           await _downloadWithProgress(
             url: tarballUrl,
+            fallbackUrls: _npmTarballFallbackUrls(tarballUrl),
             destinationPath: packageFile.path,
             onProgress: onProgress,
             startProgress: 0.30,
@@ -673,7 +749,11 @@ class OpenClawVersionService {
     final arch = await NativeBridge.getArch();
     final filesDir = await NativeBridge.getFilesDir();
     final tarPath = '$filesDir/tmp/nodejs-$version.tar.xz';
-    final tarUrl = AppConstants.getNodeTarballUrlForVersion(arch, version);
+    final tarUrls = AppConstants.getNodeTarballUrlCandidatesForVersion(
+      arch,
+      version,
+    );
+    final tarUrl = tarUrls.first;
     final assetPath = AppConstants.bundledBootstrapAssetPathForUrl(tarUrl);
 
     final tarFile = File(tarPath);
@@ -698,13 +778,20 @@ class OpenClawVersionService {
           assetPath: assetPath,
           destinationPath: tarPath,
         );
-        usedLocalArchive = true;
+        if (tarFile.existsSync() && tarFile.lengthSync() >= 10 * 1024 * 1024) {
+          usedLocalArchive = true;
+        } else {
+          try {
+            tarFile.deleteSync();
+          } catch (_) {}
+        }
       } catch (_) {}
     }
 
     if (!usedLocalArchive) {
       await _downloadWithProgress(
         url: tarUrl,
+        fallbackUrls: tarUrls.skip(1).toList(),
         destinationPath: tarPath,
         onProgress: onProgress,
         startProgress: progressStart,
@@ -734,6 +821,7 @@ class OpenClawVersionService {
       } catch (_) {}
       await _downloadWithProgress(
         url: tarUrl,
+        fallbackUrls: tarUrls.skip(1).toList(),
         destinationPath: tarPath,
         onProgress: onProgress,
         startProgress: progressStart,

@@ -17,7 +17,6 @@ flutter_app/android/key.properties
 # Flutter local/cache files
 flutter_app/.flutter-plugins-dependencies
 flutter_app/.dart_tool/
-flutter_app/pubspec.lock
 flutter_app/build/
 flutter_app/android/.gradle/
 flutter_app/android/local.properties
