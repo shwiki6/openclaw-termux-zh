@@ -1,5 +1,11 @@
 allprojects {
     repositories {
+        maven {
+            url "https://storage.googleapis.com/download.flutter.io"
+            content {
+                includeGroup "io.flutter"
+            }
+        }
         google()
         mavenCentral()
         maven { url "https://jitpack.io" }

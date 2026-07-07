@@ -10,6 +10,12 @@ pluginManagement {
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
     repositories {
+        maven {
+            url "https://storage.googleapis.com/download.flutter.io"
+            content {
+                includeGroup "io.flutter"
+            }
+        }
         google()
         mavenCentral()
         gradlePluginPortal()
