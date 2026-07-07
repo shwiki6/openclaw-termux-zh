@@ -48,10 +48,21 @@ class FileManagerOverlayController {
       if (!granted) {
         return false;
       }
+      final metrics = _initialOverlayMetrics();
       if (await FlutterOverlayWindow.isActive()) {
+        await FlutterOverlayWindow.resizeOverlay(
+          metrics.logicalSize.width.round(),
+          metrics.logicalSize.height.round(),
+          false,
+        );
+        await FlutterOverlayWindow.moveOverlay(
+          OverlayPosition(
+            metrics.logicalPosition.dx,
+            metrics.logicalPosition.dy,
+          ),
+        );
         return true;
       }
-      final metrics = _initialOverlayMetrics();
       await FlutterOverlayWindow.showOverlay(
         width: metrics.physicalSize.width.round(),
         height: metrics.physicalSize.height.round(),
@@ -63,8 +74,8 @@ class FileManagerOverlayController {
         enableDrag: false,
         positionGravity: PositionGravity.none,
         startPosition: OverlayPosition(
-          metrics.physicalPosition.dx,
-          metrics.physicalPosition.dy,
+          metrics.logicalPosition.dx,
+          metrics.logicalPosition.dy,
         ),
       );
       return true;
@@ -98,11 +109,9 @@ class FileManagerOverlayController {
       math.min(_overlayTopMargin, math.max(_overlayMargin, screen.height / 10)),
     );
     return _SystemOverlayMetrics(
+      logicalSize: logicalSize,
       physicalSize: Size(logicalSize.width * scale, logicalSize.height * scale),
-      physicalPosition: Offset(
-        logicalPosition.dx * scale,
-        logicalPosition.dy * scale,
-      ),
+      logicalPosition: logicalPosition,
     );
   }
 
@@ -226,8 +235,12 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   Size? _pendingSystemOverlaySize;
   Offset? _dragStartGlobalPosition;
   Offset? _dragStartWindowOffset;
+  Offset? _resizeStartGlobalPosition;
+  Size? _resizeStartWindowSize;
+  Size? _systemMaxWindowSize;
   bool _systemMoveInFlight = false;
   bool _systemResizeInFlight = false;
+  bool _systemWindowSizeSynced = false;
   Offset? _queuedSystemOverlayPosition;
   Size? _queuedSystemOverlaySize;
   DateTime _lastSystemOverlayMove = DateTime.fromMillisecondsSinceEpoch(0);
@@ -344,14 +357,9 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   }
 
   Future<void> _moveSystemOverlayOnce(Offset logicalOffset) async {
-    final scale = MediaQuery.devicePixelRatioOf(context);
-    final physicalOffset = Offset(
-      logicalOffset.dx * scale,
-      logicalOffset.dy * scale,
-    );
     try {
       await FlutterOverlayWindow.moveOverlay(
-        OverlayPosition(physicalOffset.dx, physicalOffset.dy),
+        OverlayPosition(logicalOffset.dx, logicalOffset.dy),
       );
     } catch (_) {}
   }
@@ -365,9 +373,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   }
 
   void _minimizeWindow() {
-    final previous = widget.systemOverlay
-        ? MediaQuery.sizeOf(context)
-        : _windowSize;
+    final previous = _windowSize;
     setState(() {
       _restoreWindowSize = previous;
       _windowSize = _minimizedWindowSize;
@@ -403,6 +409,30 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     if (widget.systemOverlay) {
       _scheduleSystemOverlayResize(Size(nextWidth, nextHeight));
     }
+  }
+
+  void _startWindowResize(DragStartDetails details) {
+    _resizeStartGlobalPosition = details.globalPosition;
+    _resizeStartWindowSize = _windowSize;
+  }
+
+  void _updateWindowResize(Size screen, DragUpdateDetails details) {
+    final startPosition = _resizeStartGlobalPosition;
+    final startSize = _resizeStartWindowSize;
+    if (startPosition == null || startSize == null) return;
+    final delta = details.globalPosition - startPosition;
+    if (delta.distance < 8) return;
+    _resizeWindow(
+      screen,
+      startSize.width + delta.dx,
+      startSize.height + delta.dy,
+    );
+  }
+
+  void _finishWindowResize() {
+    _resizeStartGlobalPosition = null;
+    _resizeStartWindowSize = null;
+    _flushSystemOverlayResize();
   }
 
   void _scheduleSystemOverlayResize(Size size) {
@@ -457,11 +487,10 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   }
 
   Future<void> _resizeSystemOverlayOnce(int width, int height) async {
-    final scale = MediaQuery.devicePixelRatioOf(context);
     try {
       await FlutterOverlayWindow.resizeOverlay(
-        (width * scale).round(),
-        (height * scale).round(),
+        width,
+        height,
         false,
       );
     } catch (_) {}
@@ -1004,13 +1033,19 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   Widget build(BuildContext context) {
     final baseTheme = Theme.of(context);
     final screen = MediaQuery.sizeOf(context);
+    if (widget.systemOverlay && !_systemWindowSizeSynced && !_minimized) {
+      _systemMaxWindowSize = screen;
+      _windowSize = screen;
+      _restoreWindowSize = screen;
+      _systemWindowSizeSynced = true;
+    }
     final width = widget.systemOverlay
-        ? (_minimized ? _windowSize.width : screen.width)
+        ? _windowSize.width
         : (_minimized
             ? _windowSize.width
             : _clampWindowWidth(screen, _windowSize.width));
     final height = widget.systemOverlay
-        ? (_minimized ? _windowSize.height : screen.height)
+        ? _windowSize.height
         : (_minimized
             ? _windowSize.height
             : _clampWindowHeight(screen, _windowSize.height));
@@ -1911,18 +1946,10 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   Widget _buildResizeHandle(Size screen) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onPanUpdate: (details) {
-        final currentSize = widget.systemOverlay
-            ? MediaQuery.sizeOf(context)
-            : _windowSize;
-        _resizeWindow(
-          screen,
-          currentSize.width + details.delta.dx,
-          currentSize.height + details.delta.dy,
-        );
-      },
-      onPanEnd: (_) => _flushSystemOverlayResize(),
-      onPanCancel: _flushSystemOverlayResize,
+      onPanStart: _startWindowResize,
+      onPanUpdate: (details) => _updateWindowResize(screen, details),
+      onPanEnd: (_) => _finishWindowResize(),
+      onPanCancel: _finishWindowResize,
       child: Container(
         width: 34,
         height: 34,
@@ -1955,9 +1982,12 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
 
   double _clampWindowWidth(Size screen, double value) {
     if (widget.systemOverlay) {
-      final baseWidth = math.max(screen.width, _windowSize.width);
-      final maxWidth = math.min(1600.0, math.max(320.0, baseWidth + 640));
-      return value.clamp(320.0, maxWidth).toDouble();
+      final maxWidth = math.max(
+        260.0,
+        _systemMaxWindowSize?.width ?? screen.width,
+      );
+      final minWidth = math.min(300.0, maxWidth);
+      return value.clamp(minWidth, maxWidth).toDouble();
     }
     final maxWidth = screen.width > 336 ? screen.width - 16 : screen.width;
     final minWidth = maxWidth < 320 ? maxWidth : 320.0;
@@ -1966,9 +1996,10 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
 
   double _clampWindowHeight(Size screen, double value) {
     if (widget.systemOverlay) {
-      final baseHeight = math.max(screen.height, _windowSize.height);
-      final maxHeight = math.min(2200.0, math.max(360.0, baseHeight + 720));
-      return value.clamp(360.0, maxHeight).toDouble();
+      final maxHeight =
+          math.max(320.0, _systemMaxWindowSize?.height ?? screen.height);
+      final minHeight = math.min(340.0, maxHeight);
+      return value.clamp(minHeight, maxHeight).toDouble();
     }
     final maxHeight = screen.height > 376 ? screen.height - 16 : screen.height;
     final minHeight = maxHeight < 360 ? maxHeight : 360.0;
@@ -2005,12 +2036,14 @@ class _SelectedEntry {
 }
 
 class _SystemOverlayMetrics {
+  final Size logicalSize;
   final Size physicalSize;
-  final Offset physicalPosition;
+  final Offset logicalPosition;
 
   const _SystemOverlayMetrics({
+    required this.logicalSize,
     required this.physicalSize,
-    required this.physicalPosition,
+    required this.logicalPosition,
   });
 }
 
