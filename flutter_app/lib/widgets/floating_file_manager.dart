@@ -8,6 +8,7 @@ import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 
 import '../services/app_navigation_service.dart';
 import '../services/file_manager_service.dart';
+import '../services/native_bridge.dart';
 
 class FileManagerOverlayController {
   FileManagerOverlayController._();
@@ -28,6 +29,17 @@ class FileManagerOverlayController {
   }
 
   static Future<void> _show() async {
+    if (Platform.isAndroid) {
+      await _closeSystemOverlay();
+      try {
+        final started = await NativeBridge.startFloatingFileManager();
+        _systemOverlayActive = started;
+        visible.value = started;
+      } catch (_) {
+        visible.value = false;
+      }
+      return;
+    }
     if (await _showSystemOverlay()) {
       _systemOverlayActive = true;
       visible.value = true;
@@ -135,6 +147,7 @@ class FileManagerOverlayController {
   static void hide() {
     if (Platform.isAndroid) {
       unawaited(_closeSystemOverlay());
+      unawaited(NativeBridge.stopFloatingFileManager());
     }
     _entry?.remove();
     _entry = null;

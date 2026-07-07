@@ -33,6 +33,14 @@ class NativeBridge {
     return Map<String, dynamic>.from(result);
   }
 
+  static Future<bool> startFloatingFileManager() async {
+    return await _channel.invokeMethod('startFloatingFileManager');
+  }
+
+  static Future<bool> stopFloatingFileManager() async {
+    return await _channel.invokeMethod('stopFloatingFileManager');
+  }
+
   static Future<bool> isBootstrapComplete() async {
     return await _channel.invokeMethod('isBootstrapComplete');
   }

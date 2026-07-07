@@ -112,6 +112,33 @@ class MainActivity : FlutterActivity() {
                 "getAppPackageInfo" -> {
                     result.success(getAppPackageInfo())
                 }
+                "startFloatingFileManager" -> {
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                            !Settings.canDrawOverlays(this)
+                        ) {
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:$packageName")
+                            )
+                            startActivity(intent)
+                            result.success(false)
+                        } else {
+                            FloatingFileManagerService.start(applicationContext)
+                            result.success(true)
+                        }
+                    } catch (e: Exception) {
+                        result.error("FLOATING_FILE_MANAGER_ERROR", e.message, null)
+                    }
+                }
+                "stopFloatingFileManager" -> {
+                    try {
+                        FloatingFileManagerService.stop(applicationContext)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("FLOATING_FILE_MANAGER_ERROR", e.message, null)
+                    }
+                }
                 "isBootstrapComplete" -> {
                     result.success(bootstrapManager.isBootstrapComplete())
                 }

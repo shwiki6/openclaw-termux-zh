@@ -103,6 +103,15 @@
             android:foregroundServiceType="mediaProjection" />
 
         <service
+            android:name=".FloatingFileManagerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Displays the user-requested global WebView file manager window." />
+        </service>
+
+        <service
             android:name="flutter.overlay.window.flutter_overlay_window.OverlayService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
