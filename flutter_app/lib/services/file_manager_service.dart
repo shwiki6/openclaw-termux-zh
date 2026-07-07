@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
-import 'native_bridge.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class FileManagerEntry {
   final String name;
@@ -28,15 +30,38 @@ class FileManagerEntry {
 class FileManagerService {
   static const agentToolsPath = 'openclaw://agent-tools';
   static const _textReadLimitBytes = 1024 * 1024;
+  static const _binaryPreviewBytes = 768;
 
-  Future<String> getPrivateRoot() => NativeBridge.getFilesDir();
+  Future<String> getPrivateRoot() async {
+    final directory = await getApplicationSupportDirectory();
+    return directory.path;
+  }
 
-  Future<String> getExternalRoot() => NativeBridge.getExternalStoragePath();
+  Future<String> getExternalRoot() async {
+    final primary = Directory('/storage/emulated/0');
+    if (await primary.exists()) {
+      return primary.path;
+    }
+    return '/sdcard';
+  }
 
-  Future<bool> hasExternalPermission() => NativeBridge.hasStoragePermission();
+  Future<bool> hasExternalPermission() async {
+    if (!Platform.isAndroid) {
+      return true;
+    }
+    return Permission.manageExternalStorage.isGranted;
+  }
 
-  Future<bool> requestExternalPermission() =>
-      NativeBridge.requestStoragePermission();
+  Future<bool> requestExternalPermission() async {
+    if (!Platform.isAndroid) {
+      return true;
+    }
+    if (await Permission.manageExternalStorage.isGranted) {
+      return true;
+    }
+    final status = await Permission.manageExternalStorage.request();
+    return status.isGranted;
+  }
 
   Future<List<FileManagerEntry>> listDirectory(String path) async {
     if (path == agentToolsPath) {
@@ -184,6 +209,83 @@ class FileManagerService {
     await File(path).writeAsString(content, encoding: utf8);
   }
 
+  Future<bool> isLikelyTextFile(String path, {String? name}) async {
+    final lowerName = (name ?? basename(path)).toLowerCase();
+    if (_knownBinaryExtensions.any(
+      (extension) => lowerName.endsWith(extension),
+    )) {
+      return false;
+    }
+    if (_knownTextExtensions.any((extension) => lowerName.endsWith(extension)) ||
+        _knownTextFileNames.contains(lowerName)) {
+      return true;
+    }
+
+    final file = File(path);
+    final length = await file.length();
+    if (length == 0) {
+      return true;
+    }
+    final sampleLength = math.min(length, 4096);
+    final sample = await file.openRead(0, sampleLength).fold<List<int>>(
+      <int>[],
+      (previous, chunk) => previous..addAll(chunk),
+    );
+    if (sample.contains(0)) {
+      return false;
+    }
+
+    var controlCount = 0;
+    for (final byte in sample) {
+      final isAllowedControl =
+          byte == 9 || byte == 10 || byte == 12 || byte == 13;
+      if (byte < 32 && !isAllowedControl) {
+        controlCount++;
+      }
+    }
+    if (controlCount / sample.length >= 0.05) {
+      return false;
+    }
+    try {
+      utf8.decode(sample, allowMalformed: false);
+      return true;
+    } on FormatException {
+      return false;
+    }
+  }
+
+  Future<String> readHexPreview(String path) async {
+    final file = File(path);
+    final length = await file.length();
+    final sampleLength = math.min(length, _binaryPreviewBytes);
+    final bytes = await file.openRead(0, sampleLength).fold<List<int>>(
+      <int>[],
+      (previous, chunk) => previous..addAll(chunk),
+    );
+    final lines = <String>[
+      'Binary preview: ${formatSize(length)}',
+      'Showing first ${formatSize(bytes.length)} as hex.',
+      '',
+    ];
+
+    for (var offset = 0; offset < bytes.length; offset += 16) {
+      final row = bytes.skip(offset).take(16).toList();
+      final hex = row
+          .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+          .join(' ')
+          .padRight(47);
+      final ascii = row
+          .map(
+            (byte) =>
+                byte >= 32 && byte <= 126 ? String.fromCharCode(byte) : '.',
+          )
+          .join();
+      lines.add('${offset.toRadixString(16).padLeft(8, '0')}  $hex  $ascii');
+    }
+
+    return lines.join('\n');
+  }
+
   bool canCreateIn(String path) => path != agentToolsPath;
 
   static String basename(String path) {
@@ -321,3 +423,114 @@ class FileManagerService {
     }
   }
 }
+
+const _knownTextExtensions = [
+  '.txt',
+  '.md',
+  '.markdown',
+  '.json',
+  '.jsonl',
+  '.yaml',
+  '.yml',
+  '.toml',
+  '.xml',
+  '.html',
+  '.htm',
+  '.css',
+  '.scss',
+  '.js',
+  '.mjs',
+  '.cjs',
+  '.ts',
+  '.tsx',
+  '.jsx',
+  '.dart',
+  '.kt',
+  '.kts',
+  '.java',
+  '.gradle',
+  '.properties',
+  '.py',
+  '.rb',
+  '.go',
+  '.rs',
+  '.c',
+  '.cc',
+  '.cpp',
+  '.h',
+  '.hpp',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.fish',
+  '.log',
+  '.conf',
+  '.cfg',
+  '.ini',
+  '.csv',
+  '.sql',
+  '.env',
+  '.license',
+];
+
+const _knownTextFileNames = {
+  'license',
+  'notice',
+  'readme',
+  'changelog',
+  '.env',
+  '.gitignore',
+  '.gitattributes',
+  '.npmignore',
+};
+
+const _knownBinaryExtensions = [
+  '.apk',
+  '.apks',
+  '.aab',
+  '.zip',
+  '.7z',
+  '.rar',
+  '.tar',
+  '.gz',
+  '.tgz',
+  '.xz',
+  '.bz2',
+  '.zst',
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.ppt',
+  '.pptx',
+  '.db',
+  '.sqlite',
+  '.so',
+  '.o',
+  '.a',
+  '.dex',
+  '.class',
+  '.jar',
+  '.ttf',
+  '.otf',
+  '.woff',
+  '.woff2',
+  '.mp3',
+  '.m4a',
+  '.flac',
+  '.wav',
+  '.ogg',
+  '.mp4',
+  '.mkv',
+  '.mov',
+  '.avi',
+  '.webm',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.bmp',
+  '.ico',
+];

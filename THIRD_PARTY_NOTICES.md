@@ -47,6 +47,7 @@ Direct dependencies currently declared:
 - `flutter_blue_plus` 1.35.12 (BSD-3-Clause; pinned to avoid later commercial-license versions)
 - `usb_serial`
 - `flutter_markdown_plus`
+- `flutter_overlay_window` 0.5.0
 
 ## Termux Terminal View
 
@@ -58,6 +59,19 @@ Direct dependencies currently declared:
 - Source for distributed binary: https://github.com/termux/termux-app/tree/v0.118.0
 - Modifications: none.
 - Required notices: preserve upstream license and notices.
+
+## flutter_overlay_window
+
+- Version: 0.5.0.
+- License: MIT.
+- Used as: Flutter plugin for Android `SYSTEM_ALERT_WINDOW` global overlay
+  windows, used by the floating file manager.
+- Upstream: https://github.com/X-SLAYER/flutter_overlay_window
+- Source for distributed binary: pub.dev package archive and upstream source
+  repository.
+- Modifications: none.
+- Required notices: Copyright (c) 2022 Iheb Briki; preserve the MIT license
+  text from the upstream package.
 
 ## PRoot From Termux Packages
 
