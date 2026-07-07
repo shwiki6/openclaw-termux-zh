@@ -17,8 +17,8 @@ class FileManagerOverlayController {
   static bool _systemOverlayActive = false;
 
   static const _fallbackScreenSize = Size(393, 780);
-  static const _overlayMargin = 12.0;
-  static const _overlayTopMargin = 56.0;
+  static const _overlayMargin = 6.0;
+  static const _overlayTopMargin = 42.0;
 
   static bool get isUsingOverlayEntry => _entry != null;
   static bool get isUsingSystemOverlay => _systemOverlayActive;
@@ -193,15 +193,16 @@ class FloatingFileManagerWindow extends StatefulWidget {
 class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   static const _accentColor = Color(0xFFDC2626);
   static const _folderColor = Color(0xFFF59E0B);
-  static const _fontScale = 0.9;
-  static const _titleBarHeight = 34.0;
-  static const _tabStripHeight = 38.0;
-  static const _bottomBarHeight = 48.0;
-  static const _smallTextSize = 12.0;
-  static const _tabTextSize = 11.5;
-  static const _editorTextSize = 13.0;
-  static const _systemMoveInterval = Duration(milliseconds: 32);
-  static const _systemResizeInterval = Duration(milliseconds: 48);
+  static const _fontScale = 0.82;
+  static const _titleBarHeight = 30.0;
+  static const _tabStripHeight = 30.0;
+  static const _bottomBarHeight = 38.0;
+  static const _paneHeaderHeight = 48.0;
+  static const _smallTextSize = 10.0;
+  static const _tabTextSize = 10.5;
+  static const _editorTextSize = 12.0;
+  static const _systemMoveInterval = Duration(milliseconds: 72);
+  static const _systemResizeInterval = Duration(milliseconds: 72);
   static const _minimizedWindowSize = Size(300, _titleBarHeight);
 
   final _service = FileManagerService();
@@ -223,6 +224,12 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   Timer? _systemResizeTimer;
   Offset? _pendingSystemOverlayPosition;
   Size? _pendingSystemOverlaySize;
+  Offset? _dragStartGlobalPosition;
+  Offset? _dragStartWindowOffset;
+  bool _systemMoveInFlight = false;
+  bool _systemResizeInFlight = false;
+  Offset? _queuedSystemOverlayPosition;
+  Size? _queuedSystemOverlaySize;
   DateTime _lastSystemOverlayMove = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastSystemOverlayResize = DateTime.fromMillisecondsSinceEpoch(0);
   final _openFileTabs = <_OpenFileTab>[];
@@ -265,15 +272,33 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     FileManagerOverlayController.hide();
   }
 
+  void _startWindowMove(DragStartDetails details) {
+    _dragStartGlobalPosition = details.globalPosition;
+    _dragStartWindowOffset =
+        widget.systemOverlay ? _systemOverlayPosition : _offset;
+  }
+
   void _moveWindow(DragUpdateDetails details) {
+    final dragStart = _dragStartGlobalPosition;
+    final windowStart = _dragStartWindowOffset;
+    final nextOffset = dragStart == null || windowStart == null
+        ? null
+        : windowStart + (details.globalPosition - dragStart);
     if (widget.systemOverlay) {
-      _systemOverlayPosition += details.delta;
+      _systemOverlayPosition =
+          nextOffset ?? (_systemOverlayPosition + details.delta);
       _scheduleSystemOverlayMove(_systemOverlayPosition);
       return;
     }
     setState(() {
-      _offset += details.delta;
+      _offset = nextOffset ?? (_offset + details.delta);
     });
+  }
+
+  void _finishWindowMove() {
+    _dragStartGlobalPosition = null;
+    _dragStartWindowOffset = null;
+    _flushSystemOverlayMove();
   }
 
   void _flushSystemOverlayMove() {
@@ -300,6 +325,25 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   }
 
   Future<void> _moveSystemOverlay(Offset logicalOffset) async {
+    if (_systemMoveInFlight) {
+      _queuedSystemOverlayPosition = logicalOffset;
+      return;
+    }
+    _systemMoveInFlight = true;
+    var next = logicalOffset;
+    while (true) {
+      await _moveSystemOverlayOnce(next);
+      final queued = _queuedSystemOverlayPosition;
+      _queuedSystemOverlayPosition = null;
+      if (queued == null || (queued - next).distance < 0.5) {
+        break;
+      }
+      next = queued;
+    }
+    _systemMoveInFlight = false;
+  }
+
+  Future<void> _moveSystemOverlayOnce(Offset logicalOffset) async {
     final scale = MediaQuery.devicePixelRatioOf(context);
     final physicalOffset = Offset(
       logicalOffset.dx * scale,
@@ -388,6 +432,31 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   }
 
   Future<void> _resizeSystemOverlay(int width, int height) async {
+    final logicalSize = Size(width.toDouble(), height.toDouble());
+    if (_systemResizeInFlight) {
+      _queuedSystemOverlaySize = logicalSize;
+      return;
+    }
+    _systemResizeInFlight = true;
+    var next = logicalSize;
+    while (true) {
+      await _resizeSystemOverlayOnce(
+        next.width.round(),
+        next.height.round(),
+      );
+      final queued = _queuedSystemOverlaySize;
+      _queuedSystemOverlaySize = null;
+      if (queued == null ||
+          ((queued.width - next.width).abs() < 0.5 &&
+              (queued.height - next.height).abs() < 0.5)) {
+        break;
+      }
+      next = queued;
+    }
+    _systemResizeInFlight = false;
+  }
+
+  Future<void> _resizeSystemOverlayOnce(int width, int height) async {
     final scale = MediaQuery.devicePixelRatioOf(context);
     try {
       await FlutterOverlayWindow.resizeOverlay(
@@ -1022,60 +1091,221 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   }
 
   Widget _buildTitleBar() {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onPanUpdate: _moveWindow,
-      onPanEnd: (_) => _flushSystemOverlayMove(),
-      onPanCancel: _flushSystemOverlayMove,
-      child: Container(
-        height: _titleBarHeight,
-        color: Colors.black,
-        padding: const EdgeInsets.only(left: 10, right: 3),
-        child: Row(
-          children: [
-            const Icon(Icons.folder_copy_outlined, color: Colors.white, size: 18),
-            const SizedBox(width: 7),
-            Expanded(
-              child: Text(
-                _minimized ? '文件管理 - 已最小化' : '文件管理',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-                overflow: TextOverflow.ellipsis,
+    return Container(
+      height: _titleBarHeight,
+      color: Colors.black,
+      padding: const EdgeInsets.only(left: 7, right: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanStart: _startWindowMove,
+              onPanUpdate: _moveWindow,
+              onPanEnd: (_) => _finishWindowMove(),
+              onPanCancel: _finishWindowMove,
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.drag_indicator,
+                    color: Colors.white70,
+                    size: 17,
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.folder_copy_outlined,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      _minimized ? '文件管理 - 已最小化' : '文件管理',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
             ),
-            IconButton(
-              tooltip: '刷新',
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              icon: const Icon(Icons.refresh, color: Colors.white, size: 18),
-              onPressed: _minimized ? null : _refreshAll,
+          ),
+          IconButton(
+            tooltip: '刷新',
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            icon: const Icon(Icons.refresh, color: Colors.white, size: 16),
+            onPressed: _minimized ? null : _refreshAll,
+          ),
+          IconButton(
+            tooltip: _minimized ? '还原' : '最小化',
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            icon: Icon(
+              _minimized ? Icons.open_in_full : Icons.minimize,
+              color: Colors.white,
+              size: 16,
             ),
-            IconButton(
-              tooltip: _minimized ? '还原' : '最小化',
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              icon: Icon(
-                _minimized ? Icons.open_in_full : Icons.minimize,
-                color: Colors.white,
-                size: 18,
-              ),
-              onPressed: _toggleMinimized,
-            ),
-            IconButton(
-              tooltip: '关闭',
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              icon: const Icon(Icons.close, color: Colors.white, size: 18),
-              onPressed: _closeWindow,
-            ),
-          ],
+            onPressed: _toggleMinimized,
+          ),
+          IconButton(
+            tooltip: '关闭',
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            icon: const Icon(Icons.close, color: Colors.white, size: 16),
+            onPressed: _closeWindow,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactIconButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback? onPressed,
+    Color color = Colors.white,
+    bool selected = false,
+    double size = 16,
+  }) {
+    return Padding(
+      padding: EdgeInsets.zero,
+      child: IconButton(
+        tooltip: tooltip,
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+        style: IconButton.styleFrom(
+          backgroundColor: selected ? _accentColor : Colors.transparent,
+          disabledForegroundColor: Colors.white38,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
         ),
+        onPressed: onPressed,
+        icon: Icon(icon, color: color, size: size),
+      ),
+    );
+  }
+
+  Widget _buildPaneModeButton({
+    required String label,
+    required bool selected,
+    required VoidCallback onPressed,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 1),
+      child: SizedBox(
+        width: 22,
+        height: 22,
+        child: TextButton(
+          style: TextButton.styleFrom(
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            backgroundColor: selected ? _accentColor : const Color(0xFF1F1F1F),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(5),
+            ),
+            textStyle: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          onPressed: onPressed,
+          child: Text(label, overflow: TextOverflow.clip),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPathText(_FilePaneState pane) {
+    return Text(
+      pane.currentPath == FileManagerService.agentToolsPath
+          ? '智能体工具目录'
+          : pane.currentPath,
+      style: const TextStyle(
+        color: Colors.white70,
+        fontSize: 9.5,
+        height: 1.1,
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  Widget _buildPaneHeader(_FilePaneState pane) {
+    return Container(
+      height: _paneHeaderHeight,
+      color: Colors.black,
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: 27,
+            child: Row(
+              children: [
+                _buildCompactIconButton(
+                  tooltip: '返回上级',
+                  icon: Icons.arrow_upward,
+                  onPressed: () => _goUp(pane),
+                ),
+                _buildCompactIconButton(
+                  tooltip: '回到根目录',
+                  icon: Icons.home_outlined,
+                  onPressed: () => _goHome(pane),
+                ),
+                Expanded(
+                  child: Text(
+                    pane.title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (pane == _right) ...[
+                  _buildPaneModeButton(
+                    label: '私',
+                    selected: !_rightExternalMode,
+                    onPressed: () => _switchRightMode(external: false),
+                  ),
+                  _buildPaneModeButton(
+                    label: '外',
+                    selected: _rightExternalMode,
+                    onPressed: () => _switchRightMode(external: true),
+                  ),
+                  if (!_externalPermission)
+                    _buildCompactIconButton(
+                      tooltip: '授权外部存储',
+                      icon: Icons.security,
+                      onPressed: _requestStoragePermission,
+                      size: 15,
+                    ),
+                ],
+                _buildCompactIconButton(
+                  tooltip: '新建文件夹',
+                  icon: Icons.create_new_folder_outlined,
+                  onPressed: () => _create(pane, directory: true),
+                ),
+                _buildCompactIconButton(
+                  tooltip: '新建文件',
+                  icon: Icons.note_add_outlined,
+                  onPressed: () => _create(pane, directory: false),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 2),
+          _buildPathText(pane),
+        ],
       ),
     );
   }
@@ -1099,7 +1329,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     return Container(
       height: _tabStripHeight,
       color: Colors.black,
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 5),
+      padding: const EdgeInsets.fromLTRB(6, 0, 6, 4),
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
@@ -1141,16 +1371,17 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
       child: InkWell(
         onTap: onTap,
         child: Container(
-          constraints: const BoxConstraints(minWidth: 96, maxWidth: 220),
+          height: 26,
+          constraints: const BoxConstraints(minWidth: 82, maxWidth: 190),
           padding: EdgeInsets.only(
-            left: 10,
-            right: onClose == null ? 10 : 2,
+            left: 8,
+            right: onClose == null ? 8 : 0,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 15, color: Colors.white),
-              const SizedBox(width: 6),
+              Icon(icon, size: 14, color: Colors.white),
+              const SizedBox(width: 5),
               Flexible(
                 child: Text(
                   title,
@@ -1169,11 +1400,11 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
                   visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(
-                    minWidth: 28,
-                    minHeight: 28,
+                    minWidth: 24,
+                    minHeight: 24,
                   ),
                   onPressed: onClose,
-                  icon: const Icon(Icons.close, size: 15),
+                  icon: const Icon(Icons.close, size: 14),
                   color: Colors.white,
                 ),
             ],
@@ -1298,7 +1529,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     return Container(
       height: _bottomBarHeight,
       color: Colors.black,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 5),
       child: Row(
         children: [
           Expanded(
@@ -1316,7 +1547,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
             tooltip: '保存',
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
             onPressed: tab.kind != _OpenFileKind.text ||
                     tab.loading ||
                     tab.saving ||
@@ -1329,7 +1560,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.save_outlined, size: 21),
+                : const Icon(Icons.save_outlined, size: 18),
             color: Colors.white,
             disabledColor: Colors.white38,
           ),
@@ -1337,9 +1568,9 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
             tooltip: '重命名',
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
             onPressed: tab.loading ? null : _renameActiveFile,
-            icon: const Icon(Icons.edit_outlined, size: 21),
+            icon: const Icon(Icons.edit_outlined, size: 18),
             color: Colors.white,
             disabledColor: Colors.white38,
           ),
@@ -1347,9 +1578,9 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
             tooltip: '关闭',
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
             onPressed: _closeActiveFileTab,
-            icon: const Icon(Icons.close, size: 21),
+            icon: const Icon(Icons.close, size: 18),
             color: Colors.white,
           ),
           const SizedBox(width: 4),
@@ -1364,133 +1595,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          color: Colors.black,
-          padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    tooltip: '返回上级',
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints(minWidth: 30, minHeight: 30),
-                    onPressed: () => _goUp(pane),
-                    icon: const Icon(
-                      Icons.arrow_upward,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '回到根目录',
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints(minWidth: 30, minHeight: 30),
-                    onPressed: () => _goHome(pane),
-                    icon: const Icon(
-                      Icons.home_outlined,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      pane.title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '新建文件夹',
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints(minWidth: 30, minHeight: 30),
-                    onPressed: () => _create(pane, directory: true),
-                    icon: const Icon(
-                      Icons.create_new_folder_outlined,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '新建文件',
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints(minWidth: 30, minHeight: 30),
-                    onPressed: () => _create(pane, directory: false),
-                    icon: const Icon(
-                      Icons.note_add_outlined,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                  ),
-                ],
-              ),
-              Text(
-                pane.currentPath == FileManagerService.agentToolsPath
-                    ? '智能体工具目录'
-                    : pane.currentPath,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: _smallTextSize,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-              if (pane == _right)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        ChoiceChip(
-                          visualDensity: VisualDensity.compact,
-                          labelStyle: const TextStyle(fontSize: _smallTextSize),
-                          label: const Text('私有'),
-                          selected: !_rightExternalMode,
-                          onSelected: (_) => _switchRightMode(external: false),
-                        ),
-                        const SizedBox(width: 6),
-                        ChoiceChip(
-                          visualDensity: VisualDensity.compact,
-                          labelStyle: const TextStyle(fontSize: _smallTextSize),
-                          label: const Text('外部'),
-                          selected: _rightExternalMode,
-                          onSelected: (_) => _switchRightMode(external: true),
-                        ),
-                        if (!_externalPermission) ...[
-                          const SizedBox(width: 6),
-                          TextButton.icon(
-                            style: TextButton.styleFrom(
-                              visualDensity: VisualDensity.compact,
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 6),
-                              textStyle:
-                                  const TextStyle(fontSize: _smallTextSize),
-                            ),
-                            onPressed: _requestStoragePermission,
-                            icon: const Icon(Icons.security, size: 16),
-                            label: const Text('授权'),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
+        _buildPaneHeader(pane),
         if (pane.error != null)
           MaterialBanner(
             content: Text(
@@ -1549,48 +1654,70 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
       if (access.isNotEmpty) access,
     ];
     final subtitle = subtitleParts.join(' · ');
-    return ListTile(
-      dense: true,
-      contentPadding: const EdgeInsets.only(left: 6, right: 2),
-      horizontalTitleGap: 6,
-      minLeadingWidth: 24,
-      selected: selected,
-      selectedTileColor: _accentColor.withAlpha(36),
-      leading: Icon(
-        entry.isDirectory ? Icons.folder_outlined : Icons.description_outlined,
-        size: 22,
-        color: !entry.canRead
-            ? theme.disabledColor
-            : entry.isDirectory
-                ? _folderColor
-                : theme.iconTheme.color,
-      ),
-      title: Text(
-        entry.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 13,
-          color: entry.isHidden
-              ? theme.colorScheme.onSurfaceVariant
-              : theme.colorScheme.onSurface,
+    return Material(
+      color: selected ? _accentColor.withAlpha(36) : Colors.transparent,
+      child: InkWell(
+        onTap: () => _openEntry(pane, entry),
+        onLongPress: () => _select(pane, entry),
+        child: SizedBox(
+          height: 40,
+          child: Row(
+            children: [
+              const SizedBox(width: 5),
+              Icon(
+                entry.isDirectory
+                    ? Icons.folder_outlined
+                    : Icons.description_outlined,
+                size: 19,
+                color: !entry.canRead
+                    ? theme.disabledColor
+                    : entry.isDirectory
+                        ? _folderColor
+                        : theme.iconTheme.color,
+              ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      entry.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        height: 1.05,
+                        color: entry.isHidden
+                            ? theme.colorScheme.onSurfaceVariant
+                            : theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 9.5,
+                        height: 1,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: '更多',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 30, minHeight: 40),
+                onPressed: () => _showEntryMenu(pane, entry),
+                icon: const Icon(Icons.more_vert, size: 17),
+              ),
+            ],
+          ),
         ),
-      ),
-      subtitle: Text(
-        subtitle,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: _smallTextSize),
-      ),
-      onTap: () => _openEntry(pane, entry),
-      onLongPress: () => _select(pane, entry),
-      trailing: IconButton(
-        tooltip: '更多',
-        visualDensity: VisualDensity.compact,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-        onPressed: () => _showEntryMenu(pane, entry),
-        icon: const Icon(Icons.more_vert, size: 21),
       ),
     );
   }
@@ -1718,7 +1845,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     return Container(
       height: _bottomBarHeight,
       color: Colors.black,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 5),
       child: Row(
         children: [
           Expanded(
@@ -1736,10 +1863,10 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
             tooltip: '复制到另一列',
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
             onPressed:
                 selected == null ? null : () => _copyOrMoveSelected(move: false),
-            icon: const Icon(Icons.copy, size: 21),
+            icon: const Icon(Icons.copy, size: 18),
             color: Colors.white,
             disabledColor: Colors.white38,
           ),
@@ -1747,10 +1874,10 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
             tooltip: '移动到另一列',
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
             onPressed:
                 selected == null ? null : () => _copyOrMoveSelected(move: true),
-            icon: const Icon(Icons.drive_file_move_outline, size: 21),
+            icon: const Icon(Icons.drive_file_move_outline, size: 18),
             color: Colors.white,
             disabledColor: Colors.white38,
           ),
@@ -1758,9 +1885,9 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
             tooltip: '重命名',
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
             onPressed: selected == null ? null : _renameSelected,
-            icon: const Icon(Icons.edit_outlined, size: 21),
+            icon: const Icon(Icons.edit_outlined, size: 18),
             color: Colors.white,
             disabledColor: Colors.white38,
           ),
@@ -1768,9 +1895,9 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
             tooltip: '删除',
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
             onPressed: selected == null ? null : _deleteSelected,
-            icon: const Icon(Icons.delete_outline, size: 21),
+            icon: const Icon(Icons.delete_outline, size: 18),
             color: Colors.white,
             disabledColor: Colors.white38,
           ),
@@ -1797,8 +1924,8 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
       onPanEnd: (_) => _flushSystemOverlayResize(),
       onPanCancel: _flushSystemOverlayResize,
       child: Container(
-        width: 42,
-        height: 42,
+        width: 34,
+        height: 34,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: const Color(0xFF1F1F1F),
@@ -1808,7 +1935,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
           angle: math.pi / 2,
           child: const Icon(
             Icons.open_in_full,
-            size: 20,
+            size: 17,
             color: Colors.white,
           ),
         ),
