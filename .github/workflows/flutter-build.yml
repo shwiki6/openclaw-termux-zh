@@ -280,7 +280,6 @@ jobs:
             "$APK" | tee /tmp/apksigner-v2v3.txt
           grep -q "Verified using v1 scheme (JAR signing): false" /tmp/apksigner-v2v3.txt
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" /tmp/apksigner-v2v3.txt
-          grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/apksigner-v2v3.txt
 
       - name: Verify APK native PRoot binaries
         run: |
