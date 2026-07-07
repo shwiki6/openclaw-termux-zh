@@ -101,25 +101,25 @@
   function renderPane(id) {
     var pane = panes[id];
     var rootButtons = roots.map(function (root) {
-      return '<button class="h-6 shrink-0 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-[10px] text-zinc-100 active:bg-zinc-700" data-pane="' + id + '" data-path="' + attr(root.path) + '" data-action="root">' + esc(root.label) + "</button>";
+      return '<button class="fm-root-button" data-pane="' + id + '" data-path="' + attr(root.path) + '" data-action="root">' + esc(root.label) + "</button>";
     }).join("");
     var header =
-      '<div class="flex h-[58px] shrink-0 flex-col gap-1 border-b border-zinc-800 bg-zinc-950 p-1.5">' +
-      '<div class="fm-roots flex gap-1">' + rootButtons + "</div>" +
-      '<div class="flex min-w-0 items-center gap-1 text-[10px] text-zinc-400">' +
+      '<div class="fm-pane-head">' +
+      '<div class="fm-roots">' + rootButtons + "</div>" +
+      '<div class="fm-path">' +
       icon("hard-drive", "shrink-0 text-zinc-500") +
       '<span class="truncate">' + esc(pane.path) + "</span></div></div>";
     var up =
-      '<button class="fm-row flex w-full items-center gap-1.5 border-b border-zinc-900 px-1.5 text-left text-zinc-100 active:bg-zinc-800" data-pane="' + id + '" data-path="' + attr(parent(pane.path)) + '" data-action="cd">' +
+      '<div role="button" tabindex="0" class="fm-row" data-pane="' + id + '" data-path="' + attr(parent(pane.path)) + '" data-action="cd">' +
       '<span class="fm-icon text-zinc-400">' + icon("corner-up-left") + "</span>" +
-      '<span class="min-w-0 flex-1 truncate"><b class="block truncate text-[11px] font-medium">..</b><small class="block truncate text-[9px] text-zinc-500">上级目录</small></span></button>';
+      '<span class="fm-row-main"><b class="fm-row-title">..</b><small class="fm-row-sub">上级目录</small></span></div>';
     var rows = pane.entries.map(function (entry) {
       return rowHtml(id, entry);
     }).join("");
     $(id).innerHTML =
-      '<div class="flex h-full min-h-0 flex-col bg-zinc-950 ' + (active === id ? "ring-1 ring-inset ring-red-800/50" : "") + '">' +
+      '<div class="fm-pane ' + (active === id ? "active" : "") + '">' +
       header +
-      '<div class="fm-scroll flex-1 pb-1" data-scroll-pane="' + id + '">' + up + rows + "</div></div>";
+      '<div class="fm-list" data-scroll-pane="' + id + '">' + up + rows + "</div></div>";
     bindActions($(id));
     refreshIcons();
   }
@@ -129,17 +129,46 @@
     var kind = entry.dir ? "文件夹" : formatSize(entry.size);
     var iconName = entry.dir ? "folder" : fileIcon(entry.name);
     var color = entry.dir ? "text-amber-400" : "text-zinc-300";
-    return '<button class="fm-row flex w-full items-center gap-1.5 border-b border-zinc-900 px-1.5 text-left ' + (isSelected ? "bg-red-950/60 text-white" : "text-zinc-100 active:bg-zinc-800") + '" data-pane="' + id + '" data-path="' + attr(entry.path) + '" data-dir="' + (entry.dir ? "1" : "0") + '" data-action="open">' +
+    return '<div role="button" tabindex="0" class="fm-row ' + (isSelected ? "selected" : "") + '" data-pane="' + id + '" data-path="' + attr(entry.path) + '" data-dir="' + (entry.dir ? "1" : "0") + '" data-action="open">' +
       '<span class="fm-icon shrink-0 ' + color + '">' + icon(iconName) + "</span>" +
-      '<span class="min-w-0 flex-1 truncate"><b class="block truncate text-[11px] font-medium">' + esc(entry.name) + '</b><small class="block truncate text-[9px] text-zinc-500">' + esc(kind) + " · " + esc(entry.modified) + "</small></span>" +
-      '<span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 active:bg-zinc-700" data-action="menu" data-pane="' + id + '" data-path="' + attr(entry.path) + '">' + icon("more-vertical") + "</span></button>";
+      '<span class="fm-row-main"><b class="fm-row-title">' + esc(entry.name) + '</b><small class="fm-row-sub">' + esc(kind) + " · " + esc(entry.modified) + "</small></span>" +
+      '<span class="fm-more" data-action="menu" data-pane="' + id + '" data-path="' + attr(entry.path) + '">' + icon("more-vertical") + "</span></div>";
   }
 
   function bindActions(root) {
     root.querySelectorAll("[data-action]").forEach(function (el) {
       if (el.dataset.bound === "1") return;
       el.dataset.bound = "1";
+      var touchStartX = 0;
+      var touchStartY = 0;
+      var touchMoved = false;
+      el.addEventListener("touchstart", function (event) {
+        var touch = event.touches && event.touches[0];
+        if (!touch) return;
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        touchMoved = false;
+      }, { passive: true });
+      el.addEventListener("touchmove", function (event) {
+        var touch = event.touches && event.touches[0];
+        if (!touch) return;
+        if (Math.abs(touch.clientX - touchStartX) + Math.abs(touch.clientY - touchStartY) > 10) {
+          touchMoved = true;
+        }
+      }, { passive: true });
       el.addEventListener("click", function (event) {
+        if (touchMoved) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        var action = el.dataset.action;
+        if (action === "menu") event.stopPropagation();
+        handleAction(action, el);
+      });
+      el.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
         var action = el.dataset.action;
         if (action === "menu") event.stopPropagation();
         handleAction(action, el);

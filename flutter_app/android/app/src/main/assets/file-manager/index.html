@@ -7,6 +7,10 @@
   <script src="/assets/vendor/tailwind-browser.js"></script>
   <script src="/assets/vendor/lucide.min.js"></script>
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     html, body, #app {
       height: 100%;
       width: 100%;
@@ -19,30 +23,60 @@
       letter-spacing: 0;
     }
 
+    #app {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #panes {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      flex: 1 1 0;
+      height: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    #left,
+    #right {
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+    }
+
     button, input, textarea {
       font: inherit;
     }
 
-    .fm-scroll {
+    .fm-scroll,
+    .fm-list {
+      flex: 1 1 0;
+      height: 0;
       min-height: 0;
       overflow-x: hidden;
-      overflow-y: scroll;
+      overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       overscroll-behavior: contain;
       touch-action: pan-y;
     }
 
-    .fm-scroll::-webkit-scrollbar {
+    .fm-scroll::-webkit-scrollbar,
+    .fm-list::-webkit-scrollbar {
       width: 6px;
       height: 6px;
     }
 
-    .fm-scroll::-webkit-scrollbar-thumb {
+    .fm-scroll::-webkit-scrollbar-thumb,
+    .fm-list::-webkit-scrollbar-thumb {
       background: #3f3f46;
       border-radius: 999px;
     }
 
     .fm-roots {
+      display: flex;
+      gap: 4px;
       min-height: 0;
       overflow-x: auto;
       overflow-y: hidden;
@@ -56,11 +90,124 @@
       height: 0;
     }
 
+    .fm-pane {
+      display: flex;
+      height: 100%;
+      min-height: 0;
+      flex-direction: column;
+      overflow: hidden;
+      background: #09090b;
+    }
+
+    .fm-pane.active {
+      box-shadow: inset 0 0 0 1px rgba(185, 28, 28, 0.55);
+    }
+
+    .fm-pane-head {
+      display: flex;
+      height: 58px;
+      flex-shrink: 0;
+      flex-direction: column;
+      gap: 4px;
+      border-bottom: 1px solid #27272a;
+      background: #09090b;
+      padding: 6px;
+    }
+
+    .fm-path {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 4px;
+      color: #a1a1aa;
+      font-size: 10px;
+    }
+
+    .fm-path span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .fm-root-button {
+      height: 24px;
+      flex-shrink: 0;
+      border: 1px solid #3f3f46;
+      border-radius: 6px;
+      background: #18181b;
+      color: #f4f4f5;
+      padding: 0 8px;
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .fm-root-button:active {
+      background: #3f3f46;
+    }
+
     .fm-row {
+      display: flex;
+      width: 100%;
       min-height: 36px;
-      touch-action: manipulation;
+      align-items: center;
+      gap: 6px;
+      border-bottom: 1px solid #18181b;
+      background: transparent;
+      color: #f4f4f5;
+      padding: 0 6px;
+      text-align: left;
+      touch-action: pan-y;
       user-select: none;
       -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .fm-row:active {
+      background: #27272a;
+    }
+
+    .fm-row.selected {
+      background: rgba(127, 29, 29, 0.62);
+      color: #ffffff;
+    }
+
+    .fm-row-main {
+      min-width: 0;
+      flex: 1 1 0;
+    }
+
+    .fm-row-title,
+    .fm-row-sub {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .fm-row-title {
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .fm-row-sub {
+      color: #71717a;
+      font-size: 9px;
+    }
+
+    .fm-more {
+      display: flex;
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      color: #a1a1aa;
+    }
+
+    .fm-more:active {
+      background: #3f3f46;
     }
 
     .fm-icon svg,

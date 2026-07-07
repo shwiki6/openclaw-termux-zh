@@ -55,13 +55,23 @@ android {
         versionName = flutterVersionName
     }
 
-    if (hasKeystore) {
-        signingConfigs {
+    signingConfigs {
+        debug {
+            enableV1Signing = false
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = false
+        }
+        if (hasKeystore) {
             release {
                 keyAlias keystoreProperties['keyAlias']
                 keyPassword keystoreProperties['keyPassword']
                 storeFile file(keystoreProperties['storeFile'])
                 storePassword keystoreProperties['storePassword']
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = false
             }
         }
     }
