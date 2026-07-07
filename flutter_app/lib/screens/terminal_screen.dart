@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/native_bridge.dart';
 import '../services/terminal_input_controller.dart';
 import '../services/terminal_service.dart';
 import '../widgets/native_terminal_view.dart';
@@ -25,21 +26,35 @@ class TerminalScreen extends StatefulWidget {
 }
 
 class _TerminalScreenState extends State<TerminalScreen> {
+  static final Map<String, List<_TerminalSessionTab>> _savedSessions = {};
+  static final Map<String, int> _savedActiveIndexes = {};
+
   var _terminalKey = GlobalKey<NativeTerminalViewState>();
   late final TerminalInputController _terminalInput;
   late Future<_NativeTerminalConfig> _configFuture;
   late final List<_TerminalSessionTab> _sessions;
   var _activeIndex = 0;
   var _restartOnCreate = false;
+  var _closedAllSessions = false;
 
   _TerminalSessionTab get _activeSession => _sessions[_activeIndex];
 
   @override
   void initState() {
     super.initState();
-    _sessions = [
-      _TerminalSessionTab(id: widget.sessionId, title: widget.title),
-    ];
+    NativeBridge.startTerminalService().catchError((_) => false);
+    if (widget.restartOnOpen) {
+      _savedSessions.remove(widget.sessionId);
+      _savedActiveIndexes.remove(widget.sessionId);
+    }
+    final saved = _savedSessions[widget.sessionId];
+    _sessions = saved != null && saved.isNotEmpty
+        ? List<_TerminalSessionTab>.of(saved)
+        : [
+            _TerminalSessionTab(id: widget.sessionId, title: widget.title),
+          ];
+    final savedIndex = _savedActiveIndexes[widget.sessionId] ?? 0;
+    _activeIndex = savedIndex.clamp(0, _sessions.length - 1).toInt();
     _restartOnCreate = widget.restartOnOpen;
     _terminalInput = TerminalInputController(
       onWrite: (bytes) {
@@ -65,8 +80,16 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   @override
   void dispose() {
+    if (!_closedAllSessions) {
+      _persistSessionTabs();
+    }
     _terminalInput.dispose();
     super.dispose();
+  }
+
+  void _persistSessionTabs() {
+    _savedSessions[widget.sessionId] = List<_TerminalSessionTab>.of(_sessions);
+    _savedActiveIndexes[widget.sessionId] = _activeIndex;
   }
 
   void _restart() {
@@ -90,6 +113,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
       _terminalKey = GlobalKey<NativeTerminalViewState>();
       _configFuture = _loadConfig();
     });
+    _persistSessionTabs();
   }
 
   void _switchSession(int index) {
@@ -102,6 +126,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
       _terminalKey = GlobalKey<NativeTerminalViewState>();
       _configFuture = _loadConfig();
     });
+    _persistSessionTabs();
   }
 
   Future<void> _paste() async {
@@ -114,6 +139,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
       return;
     }
     if (_sessions.length <= 1) {
+      _savedSessions.remove(widget.sessionId);
+      _savedActiveIndexes.remove(widget.sessionId);
+      _closedAllSessions = true;
       Navigator.of(context).pop(true);
       return;
     }
@@ -126,6 +154,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
       _terminalKey = GlobalKey<NativeTerminalViewState>();
       _configFuture = _loadConfig();
     });
+    _persistSessionTabs();
   }
 
   @override

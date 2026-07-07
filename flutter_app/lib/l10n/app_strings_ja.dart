@@ -31,6 +31,9 @@ const Map<String, String> appStringsJa = {
   'dashboardQuickActions': 'クイック操作',
   'dashboardTerminalTitle': 'CLI ツールとターミナル',
   'dashboardTerminalSubtitle': 'Ubuntu Shell または Codex CLI を開く',
+  'dashboardFileManagerTitle': 'フローティングファイル管理',
+  'dashboardFileManagerSubtitle':
+      'エージェント、プライベート、共有ストレージを 2 ペインで管理',
   'dashboardWebDashboardTitle': 'Web ダッシュボード',
   'dashboardWebDashboardSubtitle': 'ブラウザで OpenClaw ダッシュボードを開く',
   'dashboardStartGatewayFirst': '先にゲートウェイを起動してください',
@@ -261,6 +264,12 @@ const Map<String, String> appStringsJa = {
       '\u30ed\u30fc\u30ab\u30eb\u30a2\u30af\u30bb\u30b9 URL',
   'packageCpolarRecentLogsTitle': '\u6700\u8fd1\u306e\u30ed\u30b0',
   'setupWizardTitle': 'OpenClaw セットアップ',
+  'initialSetupChoiceTitle': 'OpenClaw をインストールしますか？',
+  'initialSetupChoiceBody':
+      '先にアプリへ入ることも、今すぐ OpenClaw 環境をインストールすることもできます。ゲートウェイ、Ubuntu ターミナル、CLI ツールはセットアップ完了後に使用できます。',
+  'initialSetupChoiceInstall': 'OpenClaw をインストール',
+  'initialSetupChoiceSkip': '今はスキップ',
+  'initialSetupChoiceSkipHint': '後で設定からセットアップウィザードを再開できます。',
   'setupWizardIntroIdle':
       'Ubuntu 24.04.3、Node.js 24.14.1（arm64/x86_64、armv7 は 22.22.2）、最新安定版 OpenClaw を自己完結型の環境にダウンロードします。',
   'setupWizardIntroRunning': '環境をセットアップしています。アプリはできるだけ前面に保ってください。',

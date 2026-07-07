@@ -31,6 +31,9 @@ const Map<String, String> appStringsEn = {
   'dashboardQuickActions': 'Quick actions',
   'dashboardTerminalTitle': 'CLI Tools & Terminal',
   'dashboardTerminalSubtitle': 'Open Ubuntu Shell or Codex CLI',
+  'dashboardFileManagerTitle': 'Floating File Manager',
+  'dashboardFileManagerSubtitle':
+      'Manage agent folders, private files, and shared storage in two panes',
   'dashboardWebDashboardTitle': 'Web Dashboard',
   'dashboardWebDashboardSubtitle': 'Open OpenClaw dashboard in browser',
   'dashboardStartGatewayFirst': 'Start gateway first',
@@ -612,6 +615,13 @@ const Map<String, String> appStringsEn = {
   'packageCpolarLocalAccessTitle': 'Local Access URLs',
   'packageCpolarRecentLogsTitle': 'Recent Logs',
   'setupWizardTitle': 'Setup OpenClaw',
+  'initialSetupChoiceTitle': 'Install OpenClaw?',
+  'initialSetupChoiceBody':
+      'You can enter the app first or install the OpenClaw environment now. Gateway, Ubuntu terminal, and CLI tools are available after setup finishes.',
+  'initialSetupChoiceInstall': 'Install OpenClaw',
+  'initialSetupChoiceSkip': 'Skip for now',
+  'initialSetupChoiceSkipHint':
+      'You can restart the setup wizard later from Settings.',
   'setupWizardIntroIdle':
       'This will download Ubuntu 24.04.3, Node.js 24.14.1 (arm64/x86_64; armv7 uses 22.22.2), and the latest stable OpenClaw into a self-contained environment.',
   'setupWizardIntroRunning':

@@ -317,11 +317,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: Text(l10n.t('settingsRerunSetupSubtitle')),
                   leading: const Icon(Icons.build),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(
-                      builder: (_) => const SetupWizardScreen(),
-                    ),
-                  ),
+                  onTap: () {
+                    _prefs.openClawInstallDeferred = false;
+                    Navigator.of(context).pushReplacement(
+                      MaterialPageRoute(
+                        builder: (_) => const SetupWizardScreen(),
+                      ),
+                    );
+                  },
                 ),
                 const Divider(),
                 _sectionHeader(theme, l10n.t('settingsSystemInfo')),

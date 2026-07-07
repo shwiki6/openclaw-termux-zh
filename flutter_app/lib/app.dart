@@ -7,7 +7,9 @@ import 'providers/locale_provider.dart';
 import 'providers/setup_provider.dart';
 import 'providers/gateway_provider.dart';
 import 'providers/node_provider.dart';
+import 'services/app_navigation_service.dart';
 import 'screens/splash_screen.dart';
+import 'widgets/floating_file_manager.dart';
 import 'widgets/responsive_layout.dart';
 
 /// Centralized color palette for the entire app.
@@ -59,11 +61,14 @@ class OpenClawApp extends StatelessWidget {
       child: Consumer<LocaleProvider>(
         builder: (context, localeProvider, _) => MaterialApp(
           debugShowCheckedModeBanner: false,
+          navigatorKey: AppNavigationService.navigatorKey,
           builder: (context, child) {
             final mediaQuery = MediaQuery.of(context);
             return MediaQuery(
               data: ResponsiveLayout.clampedMediaQuery(mediaQuery),
-              child: child ?? const SizedBox.shrink(),
+              child: FileManagerOverlayHost(
+                child: child ?? const SizedBox.shrink(),
+              ),
             );
           },
           onGenerateTitle: (context) => context.l10n.t('appName'),

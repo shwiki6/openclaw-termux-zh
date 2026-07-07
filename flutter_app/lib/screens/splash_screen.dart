@@ -6,6 +6,7 @@ import '../constants.dart';
 import '../services/native_bridge.dart';
 import '../services/preferences_service.dart';
 import '../services/provider_config_service.dart';
+import 'initial_setup_choice_screen.dart';
 import 'setup_wizard_screen.dart';
 import 'onboarding_screen.dart';
 import 'dashboard_screen.dart';
@@ -153,8 +154,14 @@ class _SplashScreenState extends State<SplashScreen>
         );
       } else {
         prefs.pendingSetupCompletionChoice = false;
+        if (prefs.openClawInstallDeferred) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const DashboardScreen()),
+          );
+          return;
+        }
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const SetupWizardScreen()),
+          MaterialPageRoute(builder: (_) => const InitialSetupChoiceScreen()),
         );
       }
     } catch (e) {

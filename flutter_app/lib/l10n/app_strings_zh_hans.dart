@@ -31,6 +31,8 @@ const Map<String, String> appStringsZhHans = {
   'dashboardQuickActions': '快捷操作',
   'dashboardTerminalTitle': 'CLI 工具与终端',
   'dashboardTerminalSubtitle': '打开 Ubuntu Shell 或 Codex CLI',
+  'dashboardFileManagerTitle': '悬浮文件管理',
+  'dashboardFileManagerSubtitle': '双列管理智能体目录、私有目录和外部存储',
   'dashboardWebDashboardTitle': 'Web 控制台',
   'dashboardWebDashboardSubtitle': '在浏览器中打开 OpenClaw 控制台',
   'dashboardStartGatewayFirst': '请先启动网关',
@@ -280,6 +282,12 @@ const Map<String, String> appStringsZhHans = {
   'packageCpolarLocalAccessTitle': '\u672c\u5730\u8bbf\u95ee\u5730\u5740',
   'packageCpolarRecentLogsTitle': '\u6700\u8fd1\u65e5\u5fd7',
   'setupWizardTitle': '开始配置 OpenClaw',
+  'initialSetupChoiceTitle': '是否安装 OpenClaw',
+  'initialSetupChoiceBody':
+      '首次启动可以先进入应用，也可以立即安装 OpenClaw 环境。未安装前，网关、Ubuntu 终端和命令行工具会等安装完成后可用。',
+  'initialSetupChoiceInstall': '安装 OpenClaw',
+  'initialSetupChoiceSkip': '暂不安装，进入应用',
+  'initialSetupChoiceSkipHint': '以后可在设置中重新进入安装向导。',
   'setupWizardIntroIdle':
       '这会将 Ubuntu 24.04.3、Node.js 24.14.1（arm64/x86_64，armv7 使用 22.22.2）和 OpenClaw 最新稳定版下载到一个自包含环境中。',
   'setupWizardIntroRunning': '正在配置环境，请尽量保持应用处于前台。',

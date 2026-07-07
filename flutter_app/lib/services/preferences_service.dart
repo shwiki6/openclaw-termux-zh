@@ -8,6 +8,7 @@ class PreferencesService {
   static const _keyFirstRun = 'first_run';
   static const _keyPendingSetupCompletionChoice =
       'pending_setup_completion_choice';
+  static const _keyOpenClawInstallDeferred = 'openclaw_install_deferred';
   static const _keyDashboardUrl = 'dashboard_url';
   static const _keyWebDashboardScale = 'web_dashboard_scale';
   static const _keyLocaleCode = 'locale_code';
@@ -44,6 +45,11 @@ class PreferencesService {
       _prefs.getBool(_keyPendingSetupCompletionChoice) ?? false;
   set pendingSetupCompletionChoice(bool value) =>
       _prefs.setBool(_keyPendingSetupCompletionChoice, value);
+
+  bool get openClawInstallDeferred =>
+      _prefs.getBool(_keyOpenClawInstallDeferred) ?? false;
+  set openClawInstallDeferred(bool value) =>
+      _prefs.setBool(_keyOpenClawInstallDeferred, value);
 
   String? get dashboardUrl {
     final rawValue = _prefs.getString(_keyDashboardUrl);

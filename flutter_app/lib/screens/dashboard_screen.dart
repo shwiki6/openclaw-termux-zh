@@ -10,6 +10,7 @@ import '../providers/node_provider.dart';
 import '../services/provider_config_service.dart';
 import '../services/update_flow_service.dart';
 import '../services/update_service.dart';
+import '../widgets/floating_file_manager.dart';
 import '../widgets/gateway_controls.dart';
 import '../widgets/status_card.dart';
 import 'backup_manager_screen.dart';
@@ -282,6 +283,11 @@ class _DashboardScreenState extends State<DashboardScreen>
             icon: const Icon(Icons.settings),
             onPressed: () => _openScreen(const SettingsScreen()),
           ),
+          IconButton(
+            icon: const Icon(Icons.folder_copy_outlined),
+            tooltip: l10n.t('dashboardFileManagerTitle'),
+            onPressed: FileManagerOverlayController.show,
+          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -325,6 +331,13 @@ class _DashboardScreenState extends State<DashboardScreen>
               icon: Icons.terminal,
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _openScreen(const CliToolsScreen()),
+            ),
+            StatusCard(
+              title: l10n.t('dashboardFileManagerTitle'),
+              subtitle: l10n.t('dashboardFileManagerSubtitle'),
+              icon: Icons.folder_copy_outlined,
+              trailing: const Icon(Icons.open_in_new),
+              onTap: FileManagerOverlayController.show,
             ),
             StatusCard(
               title: l10n.t('dashboardConfigureTitle'),
