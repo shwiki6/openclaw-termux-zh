@@ -69,6 +69,11 @@ class FloatingFileManagerService : Service() {
         showWindow()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        restoreWindowIntoView()
+        return START_STICKY
+    }
+
     override fun onDestroy() {
         val manager = windowManager
         val view = rootView
@@ -277,6 +282,29 @@ class FloatingFileManagerService : Service() {
             layoutParams.width = max(layoutParams.width, dp(330))
         }
         manager.updateViewLayout(rootView, layoutParams)
+    }
+
+    private fun restoreWindowIntoView() {
+        val layoutParams = params ?: return
+        val manager = windowManager ?: return
+        val view = rootView ?: return
+        val metrics = resources.displayMetrics
+        val maxWidth = metrics.widthPixels - dp(8)
+        val maxHeight = metrics.heightPixels - dp(24)
+        if (minimized) {
+            minimized = false
+            webView?.visibility = View.VISIBLE
+            bottomBar?.visibility = View.VISIBLE
+        }
+        layoutParams.width = clamp(layoutParams.width, dp(330), maxWidth)
+        layoutParams.height = clamp(
+            max(layoutParams.height, restoreHeight).takeIf { it > 0 } ?: dp(420),
+            dp(360),
+            maxHeight
+        )
+        layoutParams.x = clamp(layoutParams.x, 0, metrics.widthPixels - dp(56))
+        layoutParams.y = clamp(layoutParams.y, 0, metrics.heightPixels - dp(56))
+        manager.updateViewLayout(view, layoutParams)
     }
 
     private fun titleButton(label: String, action: () -> Unit): TextView {

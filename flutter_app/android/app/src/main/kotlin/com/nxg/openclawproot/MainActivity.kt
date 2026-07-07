@@ -30,6 +30,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.OpenableColumns
 import android.webkit.WebView
+import android.widget.Toast
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -117,11 +118,12 @@ class MainActivity : FlutterActivity() {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
                             !Settings.canDrawOverlays(this)
                         ) {
-                            val intent = Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:$packageName")
-                            )
-                            startActivity(intent)
+                            Toast.makeText(
+                                this,
+                                "请允许“显示在其他应用上层”，返回后再次点击文件管理",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            openOverlayPermissionSettings()
                             result.success(false)
                         } else {
                             FloatingFileManagerService.start(applicationContext)
@@ -1453,6 +1455,27 @@ class MainActivity : FlutterActivity() {
                 } ?: fallback
         } catch (_: Exception) {
             fallback
+        }
+    }
+
+    private fun openOverlayPermissionSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return
+        }
+        try {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        } catch (_: ActivityNotFoundException) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName")
+                )
+            )
         }
     }
 
