@@ -1009,46 +1009,58 @@ class BootstrapService {
 
       bootstrapStatus = await NativeBridge.getBootstrapStatus();
 
-      // Step 4: Install OpenClaw (80-98%)
-      final installedOpenClawVersion =
-          await _openClawVersionService.readInstalledVersion();
-      final targetVersion = selectedOpenClawRelease?.version.trim();
-      final openClawReady = _statusFlag(bootstrapStatus, 'openclawInstalled') &&
-          installedOpenClawVersion != null &&
-          (targetVersion == null ||
-              targetVersion.isEmpty ||
-              OpenClawVersionService.isSameVersion(
-                installedVersion: installedOpenClawVersion,
-                targetVersion: targetVersion,
-              )) &&
-          await _isInstalledOpenClawUsable();
-
-      if (openClawReady) {
+      // Step 4: Install OpenClaw (80-98%). This is optional; the base
+      // terminal environment is considered usable after Node.js is ready.
+      if (!installOptions.installOpenClaw) {
         _emitProgress(
           onProgress: onProgress,
           step: SetupStep.installingOpenClaw,
           progress: 1.0,
-          message: 'OpenClaw already installed',
-          detail: 'Reusing OpenClaw $installedOpenClawVersion.',
+          message: 'OpenClaw installation skipped',
+          detail: 'The Ubuntu, base packages, bionic bypass, and Node.js environment are ready.',
         );
       } else {
-        await _openClawVersionService.installVersion(
-          selectedOpenClawRelease?.version ?? 'latest',
-          releaseInfo: selectedOpenClawRelease,
-          installOptions: installOptions,
-          captureLiveLogs: false,
-          onProgress: (installProgress) {
-            final detail = installProgress.detail?.trim();
-            _emitProgress(
-              onProgress: onProgress,
-              step: SetupStep.installingOpenClaw,
-              progress: installProgress.progress,
-              message: installProgress.message,
-              detail: detail?.isEmpty == true ? null : detail,
-              preserveDetail: detail == null || detail.isEmpty,
-            );
-          },
-        );
+        final installedOpenClawVersion =
+            await _openClawVersionService.readInstalledVersion();
+        final targetVersion = selectedOpenClawRelease?.version.trim();
+        final openClawReady =
+            _statusFlag(bootstrapStatus, 'openclawInstalled') &&
+                installedOpenClawVersion != null &&
+                (targetVersion == null ||
+                    targetVersion.isEmpty ||
+                    OpenClawVersionService.isSameVersion(
+                      installedVersion: installedOpenClawVersion,
+                      targetVersion: targetVersion,
+                    )) &&
+                await _isInstalledOpenClawUsable();
+
+        if (openClawReady) {
+          _emitProgress(
+            onProgress: onProgress,
+            step: SetupStep.installingOpenClaw,
+            progress: 1.0,
+            message: 'OpenClaw already installed',
+            detail: 'Reusing OpenClaw $installedOpenClawVersion.',
+          );
+        } else {
+          await _openClawVersionService.installVersion(
+            selectedOpenClawRelease?.version ?? 'latest',
+            releaseInfo: selectedOpenClawRelease,
+            installOptions: installOptions,
+            captureLiveLogs: false,
+            onProgress: (installProgress) {
+              final detail = installProgress.detail?.trim();
+              _emitProgress(
+                onProgress: onProgress,
+                step: SetupStep.installingOpenClaw,
+                progress: installProgress.progress,
+                message: installProgress.message,
+                detail: detail?.isEmpty == true ? null : detail,
+                preserveDetail: detail == null || detail.isEmpty,
+              );
+            },
+          );
+        }
       }
 
       // Step 5: Bionic Bypass already installed (before node verification)
@@ -1066,7 +1078,9 @@ class BootstrapService {
         onProgress: onProgress,
         step: SetupStep.complete,
         progress: 1.0,
-        message: 'Setup complete! Ready to start the gateway.',
+        message: installOptions.installOpenClaw
+            ? 'Setup complete! Ready to start the gateway.'
+            : 'Base environment ready. OpenClaw can be installed later.',
         notificationText: 'Setup complete! 100.0%',
       );
     } on DioException catch (e) {

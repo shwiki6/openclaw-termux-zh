@@ -133,10 +133,14 @@ class InstallStatusMessageFormatter {
         return l10n.t('setupWizardStatusVerifyingOpenClaw');
       case 'OpenClaw installed':
         return l10n.t('setupWizardStatusOpenClawInstalled');
+      case 'OpenClaw installation skipped':
+        return l10n.t('setupWizardStatusOpenClawSkipped');
       case 'Bionic Bypass configured':
         return l10n.t('setupWizardStatusBypassConfigured');
       case 'Setup complete! Ready to start the gateway.':
         return l10n.t('setupWizardStatusReady');
+      case 'Base environment ready. OpenClaw can be installed later.':
+        return l10n.t('setupWizardStatusBaseReady');
       case 'Preparing installation...':
         return l10n.t('gatewayApplyingVersion');
       case 'Stopping gateway...':
@@ -213,6 +217,14 @@ class InstallStatusMessageFormatter {
           zhHans: '下载完成，正在执行 OpenClaw 的 npm 安装...',
           zhHant: '下載完成，正在執行 OpenClaw 的 npm 安裝...',
           ja: 'ダウンロード完了。OpenClaw の npm インストールを実行中...',
+        );
+      case 'The Ubuntu, base packages, bionic bypass, and Node.js environment are ready.':
+        return _phrase(
+          l10n,
+          en: 'Ubuntu, base packages, Bionic Bypass, and Node.js are ready.',
+          zhHans: 'Ubuntu、基础软件包、Bionic Bypass 和 Node.js 已就绪。',
+          zhHant: 'Ubuntu、基礎軟體包、Bionic Bypass 和 Node.js 已就緒。',
+          ja: 'Ubuntu、基本パッケージ、Bionic Bypass、Node.js の準備が完了しました。',
         );
       case 'Reading package lists...':
         return _phrase(

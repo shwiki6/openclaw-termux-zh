@@ -3,31 +3,25 @@ import 'package:flutter/material.dart';
 import '../constants.dart';
 import '../l10n/app_localizations.dart';
 import '../services/preferences_service.dart';
-import 'dashboard_screen.dart';
 import 'setup_wizard_screen.dart';
 
 class InitialSetupChoiceScreen extends StatelessWidget {
   const InitialSetupChoiceScreen({super.key});
 
-  Future<void> _install(BuildContext context) async {
+  Future<void> _install(
+    BuildContext context, {
+    required bool installOpenClaw,
+  }) async {
     final prefs = PreferencesService();
     await prefs.init();
-    prefs.openClawInstallDeferred = false;
+    prefs.openClawInstallDeferred = !installOpenClaw;
     if (!context.mounted) return;
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const SetupWizardScreen()),
-    );
-  }
-
-  Future<void> _skip(BuildContext context) async {
-    final prefs = PreferencesService();
-    await prefs.init();
-    prefs.openClawInstallDeferred = true;
-    prefs.pendingSetupCompletionChoice = false;
-    prefs.isFirstRun = false;
-    if (!context.mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const DashboardScreen()),
+      MaterialPageRoute(
+        builder: (_) => SetupWizardScreen(
+          installOpenClawByDefault: installOpenClaw,
+        ),
+      ),
     );
   }
 
@@ -77,14 +71,20 @@ class InitialSetupChoiceScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 28),
                   FilledButton.icon(
-                    onPressed: () => _install(context),
+                    onPressed: () => _install(
+                      context,
+                      installOpenClaw: true,
+                    ),
                     icon: const Icon(Icons.download_for_offline_outlined),
                     label: Text(l10n.t('initialSetupChoiceInstall')),
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
-                    onPressed: () => _skip(context),
-                    icon: const Icon(Icons.login_outlined),
+                    onPressed: () => _install(
+                      context,
+                      installOpenClaw: false,
+                    ),
+                    icon: const Icon(Icons.layers_outlined),
                     label: Text(l10n.t('initialSetupChoiceSkip')),
                   ),
                   const SizedBox(height: 16),

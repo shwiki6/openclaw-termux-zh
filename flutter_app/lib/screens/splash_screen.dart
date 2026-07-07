@@ -119,12 +119,16 @@ class _SplashScreenState extends State<SplashScreen>
         prefs.lastAppVersion = AppConstants.version;
       } catch (_) {}
 
+      Map<String, dynamic> bootstrapStatus = const {};
       bool setupComplete;
       try {
+        bootstrapStatus = await NativeBridge.getBootstrapStatus();
         setupComplete = await NativeBridge.isBootstrapComplete();
       } catch (_) {
         setupComplete = false;
       }
+      final baseEnvironmentComplete =
+          setupComplete || _isBaseEnvironmentComplete(bootstrapStatus);
 
       if (!mounted) return;
 
@@ -154,7 +158,10 @@ class _SplashScreenState extends State<SplashScreen>
         );
       } else {
         prefs.pendingSetupCompletionChoice = false;
-        if (prefs.openClawInstallDeferred) {
+        if (baseEnvironmentComplete) {
+          prefs.openClawInstallDeferred = true;
+          prefs.setupComplete = true;
+          prefs.isFirstRun = false;
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (_) => const DashboardScreen()),
           );
@@ -169,6 +176,14 @@ class _SplashScreenState extends State<SplashScreen>
         setState(() => _status = 'Error: $e');
       }
     }
+  }
+
+  bool _isBaseEnvironmentComplete(Map<String, dynamic> status) {
+    return status['rootfsExists'] == true &&
+        status['binBashExists'] == true &&
+        status['basePackagesInstalled'] == true &&
+        status['bypassInstalled'] == true &&
+        status['nodeInstalled'] == true;
   }
 
   @override

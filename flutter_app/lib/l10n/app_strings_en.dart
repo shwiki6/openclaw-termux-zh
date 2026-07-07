@@ -615,13 +615,13 @@ const Map<String, String> appStringsEn = {
   'packageCpolarLocalAccessTitle': 'Local Access URLs',
   'packageCpolarRecentLogsTitle': 'Recent Logs',
   'setupWizardTitle': 'Setup OpenClaw',
-  'initialSetupChoiceTitle': 'Install OpenClaw?',
+  'initialSetupChoiceTitle': 'Install runtime environment',
   'initialSetupChoiceBody':
-      'You can enter the app first or install the OpenClaw environment now. Gateway, Ubuntu terminal, and CLI tools are available after setup finishes.',
-  'initialSetupChoiceInstall': 'Install OpenClaw',
-  'initialSetupChoiceSkip': 'Skip for now',
+      'First launch must install the Ubuntu terminal, base packages, Bionic Bypass, and Node.js. OpenClaw can be installed now or later from Settings.',
+  'initialSetupChoiceInstall': 'Install base environment and OpenClaw',
+  'initialSetupChoiceSkip': 'Install base environment only',
   'initialSetupChoiceSkipHint':
-      'You can restart the setup wizard later from Settings.',
+      'OpenClaw is optional and can be installed later from Settings.',
   'setupWizardIntroIdle':
       'This will download Ubuntu 24.04.3, Node.js 24.14.1 (arm64/x86_64; armv7 uses 22.22.2), and the latest stable OpenClaw into a self-contained environment.',
   'setupWizardIntroRunning':
@@ -629,6 +629,15 @@ const Map<String, String> appStringsEn = {
   'setupWizardConfigureApiKeys': 'Configure API Keys',
   'setupWizardRetry': 'Retry Setup',
   'setupWizardBegin': 'Begin Setup',
+  'setupWizardBeginBaseOnly': 'Install Base Environment',
+  'setupWizardEnterApp': 'Enter App',
+  'setupWizardOpenClawDeferredHint':
+      'OpenClaw was skipped. Install it later from Settings when you need the gateway.',
+  'setupWizardInstallOpenClawToggleTitle': 'Install OpenClaw',
+  'setupWizardInstallOpenClawToggleOn':
+      'Install OpenClaw after the base Linux environment is ready.',
+  'setupWizardInstallOpenClawToggleOff':
+      'Only install Ubuntu, base packages, Bionic Bypass, and Node.js.',
   'setupWizardSelectVersion': 'OpenClaw Version',
   'setupWizardSelectedVersionHint': 'Will install {version} · {size}',
   'setupWizardRecommended': 'Recommended latest',
@@ -699,6 +708,7 @@ const Map<String, String> appStringsEn = {
   'setupWizardStepInstallNode': 'Install Node.js',
   'setupWizardStepInstallOpenClaw': 'Install OpenClaw',
   'setupWizardStepInstallOpenClawWithSize': 'Install OpenClaw ({size})',
+  'setupWizardStepSkipOpenClaw': 'Skip OpenClaw',
   'setupWizardStepConfigureBypass': 'Configure Bionic Bypass',
   'setupWizardComplete': 'Setup complete!',
   'setupWizardStatusSetupComplete': 'Setup complete',
@@ -727,8 +737,11 @@ const Map<String, String> appStringsEn = {
   'setupWizardStatusCreatingBinWrappers': 'Creating bin wrappers...',
   'setupWizardStatusVerifyingOpenClaw': 'Verifying OpenClaw...',
   'setupWizardStatusOpenClawInstalled': 'OpenClaw installed',
+  'setupWizardStatusOpenClawSkipped': 'OpenClaw installation skipped',
   'setupWizardStatusBypassConfigured': 'Bionic Bypass configured',
   'setupWizardStatusReady': 'Setup complete! Ready to start the gateway.',
+  'setupWizardStatusBaseReady':
+      'Base environment ready. OpenClaw can be installed later.',
   'onboardingTitle': 'OpenClaw Onboarding',
   'onboardingStarting': 'Starting onboarding...',
   'onboardingGoToDashboard': 'Go to Dashboard',

@@ -25,10 +25,12 @@ import 'onboarding_screen.dart';
 
 class SetupWizardScreen extends StatefulWidget {
   final bool resumeCompletionChoice;
+  final bool installOpenClawByDefault;
 
   const SetupWizardScreen({
     super.key,
     this.resumeCompletionChoice = false,
+    this.installOpenClawByDefault = true,
   });
 
   @override
@@ -39,6 +41,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   final OpenClawVersionService _versionService = OpenClawVersionService();
 
   bool _started = false;
+  late bool _installOpenClaw;
+  bool _lastSetupInstalledOpenClaw = true;
   bool _resolvingExistingSetupState = false;
   bool _didRestoreCompletedSetupState = false;
   List<OpenClawReleaseInfo> _availableReleases = const [];
@@ -63,6 +67,8 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
   @override
   void initState() {
     super.initState();
+    _installOpenClaw = widget.installOpenClawByDefault;
+    _lastSetupInstalledOpenClaw = widget.installOpenClawByDefault;
     _resolvingExistingSetupState = widget.resumeCompletionChoice;
     _loadOpenClawReleaseOptions();
     _loadCliApiConfigStatus();
@@ -153,8 +159,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     prefs.pendingSetupCompletionChoice = value;
   }
 
-  Future<void> _finishSetupFlow() async {
+  Future<void> _finishSetupFlow({bool openClawDeferred = false}) async {
     final prefs = await _loadPrefs();
+    prefs.openClawInstallDeferred = openClawDeferred;
     prefs.pendingSetupCompletionChoice = false;
     prefs.setupComplete = true;
     prefs.isFirstRun = false;
@@ -207,6 +214,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
 
     setState(() {
       _started = true;
+      _lastSetupInstalledOpenClaw = _installOpenClaw;
     });
     await provider.runSetup(
       selectedOpenClawRelease: _selectedRelease ?? _latestRelease,
@@ -221,6 +229,7 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
         nodeArchiveUrl:
             _selectedNodeArchivePath == null ? nodeArchiveUrl : null,
         nodeArchivePath: _selectedNodeArchivePath,
+        installOpenClaw: _installOpenClaw,
       ),
     );
 
@@ -228,12 +237,19 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
       return;
     }
 
-    try {
-      await CliApiConfigService.regenerateRuntimeFiles();
-    } catch (_) {
-      // CLI config can be applied later from the CLI tools page.
+    if (_lastSetupInstalledOpenClaw) {
+      try {
+        await CliApiConfigService.regenerateRuntimeFiles();
+      } catch (_) {
+        // CLI config can be applied later from the CLI tools page.
+      }
+      final prefs = await _loadPrefs();
+      prefs.openClawInstallDeferred = false;
+      await _setPendingSetupChoice(true);
+      return;
     }
-    await _setPendingSetupChoice(true);
+
+    await _finishSetupFlow(openClawDeferred: true);
   }
 
   bool _validateOptionalBootstrapUrl({
@@ -710,36 +726,64 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         ),
                       ],
                   if (state.isComplete) ...[
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _openCliApiConfig,
-                        icon: const Icon(Icons.tune),
-                        label: const Text('配置第三方 API（可选）'),
+                    if (_lastSetupInstalledOpenClaw) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _openCliApiConfig,
+                          icon: const Icon(Icons.tune),
+                          label: const Text('配置第三方 API（可选）'),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: _handleConfigureApi,
-                        icon: const Icon(Icons.arrow_forward),
-                        label: Text(l10n.t('setupWizardConfigureApiKeys')),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _handleConfigureApi,
+                          icon: const Icon(Icons.arrow_forward),
+                          label: Text(l10n.t('setupWizardConfigureApiKeys')),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _importSnapshotAndContinue,
-                        icon: const Icon(Icons.download_done_outlined),
-                        label: Text(l10n.t('settingsImportSnapshot')),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _importSnapshotAndContinue,
+                          icon: const Icon(Icons.download_done_outlined),
+                          label: Text(l10n.t('settingsImportSnapshot')),
+                        ),
                       ),
-                    ),
+                    ] else ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () =>
+                              _finishSetupFlow(openClawDeferred: true),
+                          icon: const Icon(Icons.home_outlined),
+                          label: Text(l10n.t('setupWizardEnterApp')),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        l10n.t('setupWizardOpenClawDeferredHint'),
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ] else if (!isResolvingCompletionChoice &&
                       (!_started || state.hasError)) ...[
-                    _buildVersionSelector(theme, l10n, provider.isRunning),
+                    _buildOpenClawInstallToggle(
+                      theme,
+                      l10n,
+                      provider.isRunning,
+                    ),
                     const SizedBox(height: 12),
+                    if (_installOpenClaw) ...[
+                      _buildVersionSelector(theme, l10n, provider.isRunning),
+                      const SizedBox(height: 12),
+                    ],
                     _buildBootstrapResourceConfigButton(
                       theme,
                       l10n,
@@ -765,7 +809,9 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
                         label: Text(
                           _started
                               ? l10n.t('setupWizardRetry')
-                              : l10n.t('setupWizardBegin'),
+                              : _installOpenClaw
+                                  ? l10n.t('setupWizardBegin')
+                                  : l10n.t('setupWizardBeginBaseOnly'),
                         ),
                       ),
                     ),
@@ -899,17 +945,21 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
     SetupState state,
     AppLocalizations l10n,
   ) {
+    final willInstallOpenClaw =
+        _started ? _lastSetupInstalledOpenClaw : _installOpenClaw;
     final steps = [
       (1, l10n.t('setupWizardStepDownloadRootfs'), SetupStep.downloadingRootfs),
       (2, l10n.t('setupWizardStepExtractRootfs'), SetupStep.extractingRootfs),
       (3, l10n.t('setupWizardStepInstallNode'), SetupStep.installingNode),
       (
         4,
-        l10n.t('setupWizardStepInstallOpenClawWithSize', {
-          'size': _selectedRelease?.unpackedSizeLabel ??
-              _latestRelease?.unpackedSizeLabel ??
-              AppConstants.openClawEstimatedSize,
-        }),
+        willInstallOpenClaw
+            ? l10n.t('setupWizardStepInstallOpenClawWithSize', {
+                'size': _selectedRelease?.unpackedSizeLabel ??
+                    _latestRelease?.unpackedSizeLabel ??
+                    AppConstants.openClawEstimatedSize,
+              })
+            : l10n.t('setupWizardStepSkipOpenClaw'),
         SetupStep.installingOpenClaw
       ),
       (
@@ -967,6 +1017,61 @@ class _SetupWizardScreenState extends State<SetupWizardScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildOpenClawInstallToggle(
+    ThemeData theme,
+    AppLocalizations l10n,
+    bool disabled,
+  ) {
+    final fillColor =
+        theme.inputDecorationTheme.fillColor ?? theme.colorScheme.surface;
+    final titleColor =
+        disabled ? theme.disabledColor : theme.colorScheme.onSurface;
+    final subtitleColor = disabled
+        ? theme.disabledColor
+        : theme.colorScheme.onSurfaceVariant;
+
+    return Material(
+      color: fillColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: SwitchListTile(
+        value: _installOpenClaw,
+        onChanged: disabled
+            ? null
+            : (value) {
+                setState(() => _installOpenClaw = value);
+              },
+        secondary: Icon(
+          _installOpenClaw
+              ? Icons.download_for_offline_outlined
+              : Icons.layers_outlined,
+          color: disabled ? theme.disabledColor : theme.colorScheme.primary,
+        ),
+        title: Text(
+          l10n.t('setupWizardInstallOpenClawToggleTitle'),
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: titleColor,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        subtitle: Text(
+          _installOpenClaw
+              ? l10n.t('setupWizardInstallOpenClawToggleOn')
+              : l10n.t('setupWizardInstallOpenClawToggleOff'),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: subtitleColor,
+            height: 1.25,
+          ),
+        ),
+      ),
     );
   }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -95,6 +96,8 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   Offset _offset = const Offset(18, 72);
   Size _windowSize = const Size(720, 520);
   _SelectedEntry? _selection;
+  final _openFileTabs = <_OpenFileTab>[];
+  int? _activeFileIndex;
   bool _externalPermission = false;
   bool _initializing = true;
   bool _rightExternalMode = false;
@@ -103,6 +106,22 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   void initState() {
     super.initState();
     unawaited(_initialize());
+  }
+
+  @override
+  void dispose() {
+    for (final tab in _openFileTabs) {
+      tab.controller.dispose();
+    }
+    super.dispose();
+  }
+
+  _OpenFileTab? get _activeFileTab {
+    final index = _activeFileIndex;
+    if (index == null || index < 0 || index >= _openFileTabs.length) {
+      return null;
+    }
+    return _openFileTabs[index];
   }
 
   Future<void> _initialize() async {
@@ -207,7 +226,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     setState(() {
       _selection = _SelectedEntry(pane: pane, entry: entry);
     });
-    unawaited(_editTextFile(entry));
+    unawaited(_openFileTab(entry));
   }
 
   Future<void> _goUp(_FilePaneState pane) async {
@@ -317,59 +336,180 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     }
   }
 
-  Future<void> _editTextFile(FileManagerEntry entry) async {
+  Future<void> _openFileTab(FileManagerEntry entry) async {
     if (entry.isDirectory) return;
-    String content;
-    try {
-      content = await _service.readTextFile(entry.path);
-    } catch (e) {
-      _showSnack('无法读取文件：$e');
+    final existingIndex =
+        _openFileTabs.indexWhere((tab) => tab.path == entry.path);
+    if (existingIndex >= 0) {
+      setState(() => _activeFileIndex = existingIndex);
       return;
     }
-    if (!mounted) return;
-    final dialogContext = AppNavigationService.context ?? context;
-    final controller = TextEditingController(text: content);
-    final saved = await showDialog<bool>(
-      context: dialogContext,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(entry.name),
-          content: SizedBox(
-            width: 640,
-            height: 420,
-            child: TextField(
-              controller: controller,
-              expands: true,
-              maxLines: null,
-              minLines: null,
-              textAlignVertical: TextAlignVertical.top,
-              style: const TextStyle(fontFamily: 'DejaVuSansMono'),
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.all(12),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('保存'),
-            ),
-          ],
-        );
-      },
-    );
-    if (saved != true) return;
+
+    final tab = _OpenFileTab(entry: entry);
+    setState(() {
+      _openFileTabs.add(tab);
+      _activeFileIndex = _openFileTabs.length - 1;
+    });
+
+    if (_isImageFile(entry.name)) {
+      setState(() {
+        tab.kind = _OpenFileKind.image;
+        tab.loading = false;
+      });
+      return;
+    }
+
     try {
-      await _service.writeTextFile(entry.path, controller.text);
+      final content = await _service.readTextFile(entry.path);
+      if (!mounted || !_openFileTabs.contains(tab)) return;
+      setState(() {
+        tab.content = content;
+        tab.controller.text = content;
+        tab.loading = false;
+      });
+    } catch (e) {
+      if (!mounted || !_openFileTabs.contains(tab)) return;
+      setState(() {
+        tab.loading = false;
+        tab.error = '$e';
+      });
+    }
+  }
+
+  bool _isImageFile(String name) {
+    final lower = name.toLowerCase();
+    return lower.endsWith('.png') ||
+        lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.gif') ||
+        lower.endsWith('.webp') ||
+        lower.endsWith('.bmp');
+  }
+
+  Future<void> _retryOpenFile(_OpenFileTab tab) async {
+    setState(() {
+      tab.loading = true;
+      tab.error = null;
+    });
+    try {
+      final content = await _service.readTextFile(tab.path);
+      if (!mounted || !_openFileTabs.contains(tab)) return;
+      setState(() {
+        tab.content = content;
+        tab.controller.text = content;
+        tab.dirty = false;
+        tab.loading = false;
+      });
+    } catch (e) {
+      if (!mounted || !_openFileTabs.contains(tab)) return;
+      setState(() {
+        tab.error = '$e';
+        tab.loading = false;
+      });
+    }
+  }
+
+  Future<void> _saveActiveFile() async {
+    final tab = _activeFileTab;
+    if (tab == null || tab.loading || tab.error != null) return;
+    setState(() => tab.saving = true);
+    try {
+      await _service.writeTextFile(tab.path, tab.controller.text);
+      if (!mounted || !_openFileTabs.contains(tab)) return;
+      setState(() {
+        tab.content = tab.controller.text;
+        tab.dirty = false;
+        tab.saving = false;
+      });
       await _refreshSelectedPane();
       _showSnack('已保存');
     } catch (e) {
+      if (!mounted || !_openFileTabs.contains(tab)) return;
+      setState(() => tab.saving = false);
       _showSnack('保存失败：$e');
+    }
+  }
+
+  Future<void> _closeFileTab(int index) async {
+    if (index < 0 || index >= _openFileTabs.length) return;
+    final tab = _openFileTabs[index];
+    if (tab.dirty) {
+      final confirmed = await _confirm(
+        title: '关闭 ${tab.name}？',
+        body: '文件有未保存修改，关闭后这些修改会丢失。',
+        action: '关闭',
+      );
+      if (!confirmed) return;
+    }
+
+    setState(() {
+      final wasActive = _activeFileIndex == index;
+      _openFileTabs.removeAt(index);
+      tab.controller.dispose();
+      final active = _activeFileIndex;
+      if (_openFileTabs.isEmpty) {
+        _activeFileIndex = null;
+      } else if (wasActive) {
+        _activeFileIndex = index >= _openFileTabs.length
+            ? _openFileTabs.length - 1
+            : index;
+      } else if (active != null && active > index) {
+        _activeFileIndex = active - 1;
+      }
+    });
+  }
+
+  Future<void> _closeActiveFileTab() async {
+    final index = _activeFileIndex;
+    if (index == null) return;
+    await _closeFileTab(index);
+  }
+
+  void _showFileManagerTab() {
+    setState(() => _activeFileIndex = null);
+  }
+
+  void _showFileTab(int index) {
+    if (index < 0 || index >= _openFileTabs.length) return;
+    setState(() => _activeFileIndex = index);
+  }
+
+  void _markActiveFileDirty(_OpenFileTab tab) {
+    if (tab.loading || tab.saving) return;
+    final dirty = tab.controller.text != tab.content;
+    if (tab.dirty == dirty) return;
+    setState(() => tab.dirty = dirty);
+  }
+
+  Future<void> _renameActiveFile() async {
+    final tab = _activeFileTab;
+    if (tab == null) return;
+    final name = await _promptText(
+      title: '重命名',
+      label: '新名称',
+      initialValue: tab.name,
+    );
+    if (name == null) return;
+    try {
+      final newPath = await _service.renameEntry(tab.path, name);
+      if (!mounted || !_openFileTabs.contains(tab)) return;
+      setState(() {
+        tab.path = newPath;
+        tab.name = FileManagerService.basename(newPath);
+        tab.entry = FileManagerEntry(
+          name: tab.name,
+          path: newPath,
+          isDirectory: false,
+          size: tab.controller.text.length,
+          modified: DateTime.now(),
+          isHidden: tab.name.startsWith('.'),
+          canRead: true,
+          canWrite: true,
+        );
+      });
+      await _refreshSelectedPane();
+    } catch (e) {
+      _showSnack('重命名失败：$e');
     }
   }
 
@@ -503,8 +643,15 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
                   Column(
                     children: [
                       _buildTitleBar(),
-                      Expanded(child: _buildBody()),
-                      _buildSelectionBar(),
+                      _buildTabStrip(),
+                      Expanded(
+                        child: _activeFileTab == null
+                            ? _buildBody()
+                            : _buildFileEditor(_activeFileTab!),
+                      ),
+                      _activeFileTab == null
+                          ? _buildSelectionBar()
+                          : _buildFileEditorBar(_activeFileTab!),
                     ],
                   ),
                   Positioned(
@@ -602,6 +749,240 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
         VerticalDivider(width: 1, color: Theme.of(context).colorScheme.outline),
         Expanded(child: _buildPane(_right)),
       ],
+    );
+  }
+
+  Widget _buildTabStrip() {
+    final managerActive = _activeFileIndex == null;
+    return Container(
+      height: 42,
+      color: Colors.black,
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          _buildTabChip(
+            title: '文件管理',
+            icon: Icons.folder_copy_outlined,
+            active: managerActive,
+            onTap: _showFileManagerTab,
+          ),
+          const SizedBox(width: 6),
+          for (var i = 0; i < _openFileTabs.length; i++) ...[
+            _buildTabChip(
+              title: _openFileTabs[i].dirty
+                  ? '${_openFileTabs[i].name} *'
+                  : _openFileTabs[i].name,
+              icon: Icons.description_outlined,
+              active: _activeFileIndex == i,
+              onTap: () => _showFileTab(i),
+              onClose: () => _closeFileTab(i),
+            ),
+            const SizedBox(width: 6),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabChip({
+    required String title,
+    required IconData icon,
+    required bool active,
+    required VoidCallback onTap,
+    VoidCallback? onClose,
+  }) {
+    return Material(
+      color: active ? _accentColor : const Color(0xFF1F1F1F),
+      borderRadius: BorderRadius.circular(8),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minWidth: 96, maxWidth: 220),
+          padding: EdgeInsets.only(
+            left: 10,
+            right: onClose == null ? 10 : 2,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: Colors.white),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (onClose != null)
+                IconButton(
+                  tooltip: '关闭标签',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 30,
+                    minHeight: 30,
+                  ),
+                  onPressed: onClose,
+                  icon: const Icon(Icons.close, size: 16),
+                  color: Colors.white,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFileEditor(_OpenFileTab tab) {
+    final theme = Theme.of(context);
+    if (tab.loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final error = tab.error;
+    if (error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline,
+                color: theme.colorScheme.error,
+                size: 36,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '无法打开文件',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                error,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () => _retryOpenFile(tab),
+                icon: const Icon(Icons.refresh),
+                label: const Text('重试'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (tab.kind == _OpenFileKind.image) {
+      return ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 5,
+            child: Image.file(
+              File(tab.path),
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    '无法预览图片：$error',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+    }
+
+    return ColoredBox(
+      color: theme.colorScheme.surface,
+      child: TextField(
+        controller: tab.controller,
+        expands: true,
+        keyboardType: TextInputType.multiline,
+        maxLines: null,
+        minLines: null,
+        textAlignVertical: TextAlignVertical.top,
+        onChanged: (_) => _markActiveFileDirty(tab),
+        style: const TextStyle(
+          fontFamily: 'DejaVuSansMono',
+          fontSize: 13,
+          height: 1.35,
+        ),
+        decoration: const InputDecoration(
+          border: InputBorder.none,
+          contentPadding: EdgeInsets.all(12),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFileEditorBar(_OpenFileTab tab) {
+    return Container(
+      height: 48,
+      color: Colors.black,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              tab.path,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          IconButton(
+            tooltip: '保存',
+            onPressed: tab.kind == _OpenFileKind.image ||
+                    tab.loading ||
+                    tab.saving ||
+                    tab.error != null
+                ? null
+                : _saveActiveFile,
+            icon: tab.saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_outlined),
+            color: Colors.white,
+            disabledColor: Colors.white38,
+          ),
+          IconButton(
+            tooltip: '重命名',
+            onPressed: tab.loading ? null : _renameActiveFile,
+            icon: const Icon(Icons.edit_outlined),
+            color: Colors.white,
+            disabledColor: Colors.white38,
+          ),
+          IconButton(
+            tooltip: '关闭',
+            onPressed: _closeActiveFileTab,
+            icon: const Icon(Icons.close),
+            color: Colors.white,
+          ),
+        ],
+      ),
     );
   }
 
@@ -943,3 +1324,29 @@ class _SelectedEntry {
     required this.entry,
   });
 }
+
+class _OpenFileTab {
+  FileManagerEntry entry;
+  String path;
+  String name;
+  String content;
+  String? error;
+  _OpenFileKind kind;
+  bool loading;
+  bool saving;
+  bool dirty;
+  final TextEditingController controller;
+
+  _OpenFileTab({
+    required this.entry,
+  })  : path = entry.path,
+        name = entry.name,
+        content = '',
+        kind = _OpenFileKind.text,
+        loading = true,
+        saving = false,
+        dirty = false,
+        controller = TextEditingController();
+}
+
+enum _OpenFileKind { text, image }
