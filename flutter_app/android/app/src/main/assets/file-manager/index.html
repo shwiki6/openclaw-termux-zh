@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>文件管理</title>
+  <script src="/assets/vendor/tailwind-browser.js"></script>
+  <script src="/assets/vendor/lucide.min.js"></script>
+  <style>
+    html, body, #app {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #09090b;
+      color: #f4f4f5;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 11px;
+      letter-spacing: 0;
+    }
+
+    button, input, textarea {
+      font: inherit;
+    }
+
+    .fm-scroll {
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: scroll;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      touch-action: pan-y;
+    }
+
+    .fm-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    .fm-scroll::-webkit-scrollbar-thumb {
+      background: #3f3f46;
+      border-radius: 999px;
+    }
+
+    .fm-roots {
+      min-height: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      touch-action: pan-x;
+    }
+
+    .fm-roots::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+    }
+
+    .fm-row {
+      min-height: 36px;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .fm-icon svg,
+    [data-lucide] {
+      width: 15px;
+      height: 15px;
+      stroke-width: 2;
+    }
+
+    .fm-dialog {
+      max-height: calc(100vh - 76px);
+    }
+  </style>
+</head>
+<body>
+  <main id="app" class="flex h-screen w-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100">
+    <header class="flex h-9 shrink-0 items-center gap-1 border-b border-zinc-800 bg-black px-1.5 text-white">
+      <button class="cmd" data-action="refresh" title="刷新"><i data-lucide="refresh-cw"></i></button>
+      <button class="cmd" data-action="mkdir" title="新建文件夹"><i data-lucide="folder-plus"></i></button>
+      <button class="cmd" data-action="touch" title="新建文件"><i data-lucide="file-plus"></i></button>
+      <button class="cmd" data-action="rename" title="重命名"><i data-lucide="pencil"></i></button>
+      <button class="cmd danger" data-action="delete" title="删除"><i data-lucide="trash-2"></i></button>
+      <button class="cmd" data-action="copy" title="复制到对侧"><i data-lucide="copy"></i></button>
+      <button class="cmd" data-action="move" title="移动到对侧"><i data-lucide="move-right"></i></button>
+      <div id="status" class="min-w-0 flex-1 truncate px-1 text-[10px] text-zinc-400">加载中</div>
+    </header>
+
+    <section id="panes" class="grid min-h-0 flex-1 grid-cols-2 overflow-hidden">
+      <section id="left" class="min-w-0 border-r border-zinc-800"></section>
+      <section id="right" class="min-w-0"></section>
+    </section>
+
+    <section id="editor" class="hidden h-[40vh] shrink-0 flex-col border-t border-zinc-800 bg-zinc-950">
+      <div class="flex h-8 shrink-0 items-center gap-1 border-b border-zinc-800 bg-black px-1.5">
+        <button class="cmd primary" data-action="save" title="保存"><i data-lucide="save"></i></button>
+        <button class="cmd" data-action="close-editor" title="关闭"><i data-lucide="x"></i></button>
+        <div id="editPath" class="min-w-0 flex-1 truncate text-[10px] text-zinc-400"></div>
+      </div>
+      <div id="editBody" class="min-h-0 flex-1 overflow-hidden"></div>
+    </section>
+
+    <section id="sheet" class="hidden absolute inset-0 z-20 bg-black/35">
+      <div class="absolute inset-x-2 bottom-2 overflow-hidden rounded-md border border-zinc-700 bg-zinc-950 shadow-2xl fm-dialog">
+        <div class="flex h-8 items-center gap-2 border-b border-zinc-800 bg-black px-2">
+          <i data-lucide="file-cog" class="text-zinc-300"></i>
+          <div id="sheetTitle" class="min-w-0 flex-1 truncate text-[11px] font-medium text-zinc-100"></div>
+          <button class="cmd" data-action="close-sheet" title="关闭"><i data-lucide="x"></i></button>
+        </div>
+        <div class="grid grid-cols-3 gap-1 p-2">
+          <button class="sheetBtn" data-action="open-selected"><i data-lucide="external-link"></i><span>打开</span></button>
+          <button class="sheetBtn" data-action="rename"><i data-lucide="pencil"></i><span>重命名</span></button>
+          <button class="sheetBtn danger" data-action="delete"><i data-lucide="trash-2"></i><span>删除</span></button>
+          <button class="sheetBtn" data-action="copy"><i data-lucide="copy"></i><span>复制</span></button>
+          <button class="sheetBtn" data-action="move"><i data-lucide="move-right"></i><span>移动</span></button>
+          <button class="sheetBtn" data-action="close-sheet"><i data-lucide="check"></i><span>完成</span></button>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="/assets/file-manager.js"></script>
+</body>
+</html>

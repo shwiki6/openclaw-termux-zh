@@ -464,7 +464,16 @@ private class FloatingFileManagerServer(private val context: Context) {
                 }
                 val uri = parseTarget(target)
                 if (uri.path == "/") {
-                    sendText(socket.getOutputStream(), 200, "text/html; charset=utf-8", html())
+                    sendAsset(
+                        socket.getOutputStream(),
+                        "file-manager/index.html",
+                        "text/html; charset=utf-8"
+                    )
+                    return
+                }
+                if (uri.path.startsWith("/assets/")) {
+                    val assetPath = "file-manager/" + uri.path.removePrefix("/assets/")
+                    sendAsset(socket.getOutputStream(), assetPath, assetContentType(assetPath))
                     return
                 }
                 val headerToken = headers["x-openclaw-file-token"]
@@ -652,6 +661,37 @@ private class FloatingFileManagerServer(private val context: Context) {
         )
         out.write(bytes)
         out.flush()
+    }
+
+    private fun sendAsset(out: OutputStream, assetPath: String, contentType: String) {
+        if (assetPath.contains("..") || assetPath.startsWith("/")) {
+            sendJson(out, 403, JSONObject().put("error", "Forbidden"))
+            return
+        }
+        try {
+            context.assets.open(assetPath).use { input ->
+                val bytes = input.readBytes()
+                out.write(
+                    "HTTP/1.1 200 OK\r\nContent-Type: $contentType\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\nCache-Control: no-cache\r\n\r\n"
+                        .toByteArray(Charsets.UTF_8)
+                )
+                out.write(bytes)
+                out.flush()
+            }
+        } catch (_: Exception) {
+            sendJson(out, 404, JSONObject().put("error", "Asset not found"))
+        }
+    }
+
+    private fun assetContentType(assetPath: String): String {
+        return when (assetPath.substringAfterLast('.', "").lowercase(Locale.US)) {
+            "html" -> "text/html; charset=utf-8"
+            "js" -> "application/javascript; charset=utf-8"
+            "css" -> "text/css; charset=utf-8"
+            "json" -> "application/json; charset=utf-8"
+            "txt", "md" -> "text/plain; charset=utf-8"
+            else -> "application/octet-stream"
+        }
     }
 
     private fun sendFile(out: OutputStream, file: File) {

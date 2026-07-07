@@ -73,6 +73,32 @@ Direct dependencies currently declared:
 - Required notices: Copyright (c) 2022 Iheb Briki; preserve the MIT license
   text from the upstream package.
 
+## @tailwindcss/browser
+
+- Version: 4.3.2.
+- License: MIT.
+- Used as: local browser-side Tailwind runtime for the floating WebView file
+  manager frontend.
+- Upstream: https://github.com/tailwindlabs/tailwindcss/tree/main/packages/@tailwindcss-browser
+- Source for distributed binary: npm package `@tailwindcss/browser@4.3.2`.
+- Modifications: none; `dist/index.global.js` is copied into
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/tailwind-browser.js`.
+- Required notices: license text is preserved in
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/licenses/tailwindcss-browser-LICENSE`.
+
+## Lucide
+
+- Version: 1.23.0.
+- License: ISC.
+- Used as: local UMD icon runtime for the floating WebView file manager
+  frontend.
+- Upstream: https://github.com/lucide-icons/lucide/tree/main/packages/lucide
+- Source for distributed binary: npm package `lucide@1.23.0`.
+- Modifications: none; `dist/umd/lucide.min.js` is copied into
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/lucide.min.js`.
+- Required notices: license text is preserved in
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/licenses/lucide-LICENSE`.
+
 ## PRoot From Termux Packages
 
 - Version: resolved from the Termux stable package index at build time.
