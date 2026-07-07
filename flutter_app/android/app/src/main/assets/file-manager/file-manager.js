@@ -157,6 +157,8 @@
     if (action === "move") return copyMove(true);
     if (action === "save") return saveFile();
     if (action === "close-editor") return closeEditor();
+    if (action === "download-editing") return downloadEditing();
+    if (action === "text-editing") return openAsText(editing);
     if (action === "close-sheet") return closeSheet();
     if (action === "open-selected") return openSelected();
     if (action === "root" || action === "cd") return load(el.dataset.pane, el.dataset.path);
@@ -231,9 +233,15 @@
     } else if (isTextExt(ext)) {
       openAsText(path);
     } else {
-      $("editBody").innerHTML = '<div class="flex h-full flex-col gap-2 bg-zinc-950 p-3 text-zinc-300"><b class="truncate text-[12px] text-zinc-100">' + esc(path.split("/").pop() || path) + '</b><span class="text-[10px] text-zinc-500">此文件不会按文本自动打开。</span><div class="flex gap-2"><button class="cmd" onclick="location.href=fileUrl(editing)">打开/下载</button><button class="cmd" onclick="openAsText(editing)">按文本打开</button></div></div>';
+      $("editBody").innerHTML = '<div class="flex h-full flex-col gap-2 bg-zinc-950 p-3 text-zinc-300"><b class="truncate text-[12px] text-zinc-100">' + esc(path.split("/").pop() || path) + '</b><span class="text-[10px] text-zinc-500">此文件不会按文本自动打开。</span><div class="flex gap-2"><button class="cmd" data-action="download-editing">打开/下载</button><button class="cmd" data-action="text-editing">按文本打开</button></div></div>';
+      bindActions($("editBody"));
     }
     refreshIcons();
+  }
+
+  function downloadEditing() {
+    if (!editing) return;
+    location.href = fileUrl(editing);
   }
 
   async function openAsText(path) {
