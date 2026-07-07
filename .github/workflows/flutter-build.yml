@@ -230,20 +230,14 @@ jobs:
           APKSIGNER="${ANDROID_HOME}/build-tools/36.0.0/apksigner"
 
           get_prop() {
-            python3 - "$KEY_PROPS" "$1" <<'PY'
-import sys
-path, key = sys.argv[1], sys.argv[2]
-for line in open(path, encoding="utf-8"):
-    line = line.strip()
-    if not line or line.startswith("#") or "=" not in line:
-        continue
-    name, value = line.split("=", 1)
-    if name == key:
-        print(value)
-        break
-else:
-    raise SystemExit(f"missing {key}")
-PY
+            local key="$1"
+            local value
+            value="$(grep -m 1 "^${key}=" "$KEY_PROPS" | cut -d= -f2-)"
+            if [ -z "$value" ]; then
+              echo "missing ${key}" >&2
+              exit 1
+            fi
+            printf '%s\n' "$value"
           }
 
           STORE_FILE="$(get_prop storeFile)"
