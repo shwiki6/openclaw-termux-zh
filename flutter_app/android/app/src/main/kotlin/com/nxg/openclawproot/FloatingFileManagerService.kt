@@ -618,7 +618,23 @@ private class FloatingFileManagerServer(private val context: Context) {
             "jpg", "jpeg" -> "image/jpeg"
             "gif" -> "image/gif"
             "webp" -> "image/webp"
+            "bmp" -> "image/bmp"
+            "heic" -> "image/heic"
+            "heif" -> "image/heif"
             "svg" -> "image/svg+xml"
+            "mp3" -> "audio/mpeg"
+            "m4a" -> "audio/mp4"
+            "aac" -> "audio/aac"
+            "wav" -> "audio/wav"
+            "ogg" -> "audio/ogg"
+            "flac" -> "audio/flac"
+            "mp4" -> "video/mp4"
+            "webm" -> "video/webm"
+            "3gp" -> "video/3gpp"
+            "mkv" -> "video/x-matroska"
+            "pdf" -> "application/pdf"
+            "zip" -> "application/zip"
+            "apk" -> "application/vnd.android.package-archive"
             "txt", "md", "json", "yaml", "yml", "toml", "xml", "html", "css", "js", "dart", "kt", "java", "py", "sh", "log" -> "text/plain; charset=utf-8"
             else -> "application/octet-stream"
         }
@@ -666,7 +682,7 @@ button{background:#1f1f1f;color:#fff;border:1px solid #333;border-radius:5px;hei
 .cols{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr}.pane{min-width:0;display:flex;flex-direction:column;border-right:1px solid #2a2a2a}.pane:last-child{border-right:0}
 .paneHead{height:56px;background:#050505;padding:4px;border-bottom:1px solid #2a2a2a}.roots{display:flex;gap:4px;overflow:auto;padding-bottom:3px}.roots button{height:23px;white-space:nowrap}
 .list{flex:1;min-height:0;overflow:auto}.row{height:38px;display:flex;align-items:center;gap:5px;padding:3px 5px;border-bottom:1px solid #202020}.row.sel{background:#451818}.icon{width:18px;text-align:center}.name{flex:1;min-width:0}.name b{display:block;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name span{display:block;color:#999;font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.editor{height:38vh;border-top:1px solid #2a2a2a;background:#151515;display:flex;flex-direction:column}.tabs{height:28px;background:#050505;display:flex;align-items:center;gap:4px;padding:3px 5px}.editBody{flex:1;min-height:0}textarea{width:100%;height:100%;resize:none;background:#101010;color:#eee;border:0;padding:8px;font:12px ui-monospace,monospace;outline:none}img{max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto}.preview{height:100%;overflow:auto;padding:8px;white-space:pre-wrap;font:12px ui-monospace,monospace}
+.editor{height:38vh;border-top:1px solid #2a2a2a;background:#151515;display:flex;flex-direction:column}.tabs{height:28px;background:#050505;display:flex;align-items:center;gap:4px;padding:3px 5px}.editBody{flex:1;min-height:0}textarea{width:100%;height:100%;resize:none;background:#101010;color:#eee;border:0;padding:8px;font:12px ui-monospace,monospace;outline:none}img{max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto}audio,video{width:100%;max-height:100%}.preview{height:100%;overflow:auto;padding:8px;white-space:pre-wrap;font:12px ui-monospace,monospace}.binaryBox{height:100%;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:12px;color:#ddd}.binaryBox b{font-size:13px}.binaryBox p{margin:0;color:#aaa}
 </style></head><body><div class="app">
 <div class="toolbar"><button onclick="refresh()">刷新</button><button onclick="mkdir()">新建夹</button><button onclick="touch()">新建文件</button><button onclick="renameSel()">重命名</button><button onclick="deleteSel()">删除</button><button onclick="copyMove(false)">复制到对侧</button><button onclick="copyMove(true)">移动到对侧</button><div class="path" id="status">加载中</div></div>
 <div class="cols"><div class="pane" id="left"></div><div class="pane" id="right"></div></div>
@@ -680,7 +696,8 @@ function render(id){let p=panes[id],el=document.getElementById(id);let rootButto
 function row(id,e){let isSel=selected&&selected.path===e.path;return '<div class="row '+(isSel?'sel':'')+'" data-pane="'+id+'" data-path="'+attr(e.path)+'" data-dir="'+(e.dir?'1':'0')+'" onclick="openEntry(this.dataset.pane,this.dataset.path,this.dataset.dir===\'1\')"><div class="icon">'+(e.dir?'▣':'□')+'</div><div class="name"><b>'+htmlEsc(e.name)+'</b><span>'+(e.dir?'文件夹':fmt(e.size))+' · '+htmlEsc(e.modified)+'</span></div><button data-pane="'+id+'" data-path="'+attr(e.path)+'" onclick="event.stopPropagation();select(this.dataset.pane,this.dataset.path)">更多</button></div>'}
 function select(id,path){active=id;selected=panes[id].entries.find(e=>e.path===path);render("left");render("right");stat(selected?selected.path:"未选择")}
 function openEntry(id,path,isDir){active=id;if(isDir){load(id,path);return}selected=panes[id].entries.find(e=>e.path===path);openFile(path)}
-async function openFile(path){editing=path;document.getElementById("editor").style.display="flex";document.getElementById("editPath").textContent=path;let ext=path.split(".").pop().toLowerCase();if(["png","jpg","jpeg","gif","webp","bmp","svg"].includes(ext)){document.getElementById("editBody").innerHTML='<img src="/api/file?token='+TOKEN+'&path='+qs(path)+'">';return}try{let r=await api("/api/read?path="+qs(path));document.getElementById("editBody").innerHTML='<textarea id="textEdit"></textarea>';document.getElementById("textEdit").value=r.content||""}catch(e){document.getElementById("editBody").innerHTML='<div class="preview">'+htmlEsc(e.message)+'</div>'}}
+async function openFile(path){editing=path;document.getElementById("editor").style.display="flex";document.getElementById("editPath").textContent=path;let ext=path.split(".").pop().toLowerCase();let url=fileUrl(path);if(["png","jpg","jpeg","gif","webp","bmp","svg","heic","heif"].includes(ext)){document.getElementById("editBody").innerHTML='<img src="'+attr(url)+'">';return}if(["mp3","m4a","aac","wav","ogg","flac"].includes(ext)){document.getElementById("editBody").innerHTML='<div class="preview"><audio controls src="'+attr(url)+'"></audio></div>';return}if(["mp4","webm","3gp","mkv"].includes(ext)){document.getElementById("editBody").innerHTML='<div class="preview"><video controls src="'+attr(url)+'"></video></div>';return}if(ext==="pdf"){document.getElementById("editBody").innerHTML='<iframe src="'+attr(url)+'" style="width:100%;height:100%;border:0;background:#fff"></iframe>';return}if(["txt","md","json","yaml","yml","toml","xml","html","css","js","dart","kt","java","py","sh","log"].includes(ext)){await openAsText(path);return}document.getElementById("editBody").innerHTML='<div class="binaryBox"><b>'+htmlEsc(path.split("/").pop()||path)+'</b><p>此文件不会按文本自动打开。</p><button onclick="location.href=fileUrl(editing)">打开/下载</button><button onclick="openAsText(editing)">按文本打开</button></div>'}
+async function openAsText(path){try{let r=await api("/api/read?path="+qs(path));document.getElementById("editBody").innerHTML='<textarea id="textEdit"></textarea>';document.getElementById("textEdit").value=r.content||""}catch(e){document.getElementById("editBody").innerHTML='<div class="preview">'+htmlEsc(e.message)+'</div>'}}
 async function saveFile(){let t=document.getElementById("textEdit");if(!editing||!t)return;await api("/api/write",{method:"POST",body:{path:editing,content:t.value}});refresh();stat("已保存")}
 function closeEditor(){editing=null;document.getElementById("editor").style.display="none"}function refresh(){load("left");load("right")}function cur(){return panes[active]}function other(){return active==="left"?panes.right:panes.left}
 async function mkdir(){let n=prompt("文件夹名称");if(!n)return;await api("/api/mkdir",{method:"POST",body:{parent:cur().path,name:n}});load(active)}
@@ -688,7 +705,7 @@ async function touch(){let n=prompt("文件名称");if(!n)return;await api("/api
 async function renameSel(){if(!selected)return alert("未选择");let n=prompt("新名称",selected.name);if(!n)return;await api("/api/rename",{method:"POST",body:{path:selected.path,name:n}});selected=null;refresh()}
 async function deleteSel(){if(!selected)return alert("未选择");if(!confirm("删除 "+selected.name+"？"))return;await api("/api/delete",{method:"POST",body:{path:selected.path}});selected=null;refresh()}
 async function copyMove(move){if(!selected)return alert("未选择");await api(move?"/api/move":"/api/copy",{method:"POST",body:{source:selected.path,targetDir:other().path}});if(move)selected=null;refresh()}
-function parent(p){let i=p.replace(/\/+$/,'').lastIndexOf('/');return i<=0?"/":p.slice(0,i)}function fmt(s){if(s<1024)return s+" B";if(s<1048576)return(s/1024).toFixed(1)+" KB";return(s/1048576).toFixed(1)+" MB"}function stat(s){document.getElementById("status").textContent=s}function htmlEsc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]))}function attr(s){return htmlEsc(s).replace(/'/g,"&#39;")}
+function fileUrl(path){return "/api/file?token="+TOKEN+"&path="+qs(path)}function parent(p){let i=p.replace(/\/+$/,'').lastIndexOf('/');return i<=0?"/":p.slice(0,i)}function fmt(s){if(s<1024)return s+" B";if(s<1048576)return(s/1024).toFixed(1)+" KB";return(s/1048576).toFixed(1)+" MB"}function stat(s){document.getElementById("status").textContent=s}function htmlEsc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]))}function attr(s){return htmlEsc(s).replace(/'/g,"&#39;")}
 init().catch(e=>stat(e.message));
 </script></body></html>
         """.trimIndent()
