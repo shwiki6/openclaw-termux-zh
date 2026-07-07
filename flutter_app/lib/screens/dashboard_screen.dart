@@ -286,7 +286,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           IconButton(
             icon: const Icon(Icons.folder_copy_outlined),
             tooltip: l10n.t('dashboardFileManagerTitle'),
-            onPressed: FileManagerOverlayController.show,
+            onPressed: () => FileManagerOverlayController.show(context),
           ),
         ],
       ),
@@ -337,7 +337,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               subtitle: l10n.t('dashboardFileManagerSubtitle'),
               icon: Icons.folder_copy_outlined,
               trailing: const Icon(Icons.open_in_new),
-              onTap: FileManagerOverlayController.show,
+              onTap: () => FileManagerOverlayController.show(context),
             ),
             StatusCard(
               title: l10n.t('dashboardConfigureTitle'),

@@ -22,6 +22,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileInputStream
@@ -64,9 +65,20 @@ class FloatingFileManagerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        server = FloatingFileManagerServer(applicationContext).also { it.start() }
-        startForeground(NOTIFICATION_ID, buildNotification())
-        showWindow()
+        try {
+            server = FloatingFileManagerServer(applicationContext).also { it.start() }
+            startForeground(NOTIFICATION_ID, buildNotification())
+            showWindow()
+            lastError = null
+        } catch (e: Exception) {
+            lastError = e.toString()
+            Toast.makeText(
+                applicationContext,
+                "悬浮文件管理器创建失败：${e.message ?: e.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -95,7 +107,6 @@ class FloatingFileManagerService : Service() {
     }
 
     private fun showWindow() {
-        isRunning = true
         val manager = getSystemService(WINDOW_SERVICE) as WindowManager
         windowManager = manager
         val metrics = resources.displayMetrics
@@ -213,6 +224,7 @@ class FloatingFileManagerService : Service() {
 
         val currentServer = server ?: return
         browser.loadUrl("http://127.0.0.1:${currentServer.port}/?token=${currentServer.token}")
+        isRunning = true
     }
 
     private fun handleDrag(event: MotionEvent): Boolean {
@@ -355,6 +367,8 @@ class FloatingFileManagerService : Service() {
         private const val CHANNEL_ID = "floating_file_manager"
         private const val NOTIFICATION_ID = 9317
         var isRunning: Boolean = false
+            private set
+        var lastError: String? = null
             private set
 
         fun start(context: Context) {

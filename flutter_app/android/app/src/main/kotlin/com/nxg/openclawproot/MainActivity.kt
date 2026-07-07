@@ -113,25 +113,12 @@ class MainActivity : FlutterActivity() {
                 "getAppPackageInfo" -> {
                     result.success(getAppPackageInfo())
                 }
+                "showFloatingFileManager" -> {
+                    result.success(showFloatingFileManager())
+                }
                 "startFloatingFileManager" -> {
-                    try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-                            !Settings.canDrawOverlays(this)
-                        ) {
-                            Toast.makeText(
-                                this,
-                                "请允许“显示在其他应用上层”，返回后再次点击文件管理",
-                                Toast.LENGTH_LONG
-                            ).show()
-                            openOverlayPermissionSettings()
-                            result.success(false)
-                        } else {
-                            FloatingFileManagerService.start(applicationContext)
-                            result.success(true)
-                        }
-                    } catch (e: Exception) {
-                        result.error("FLOATING_FILE_MANAGER_ERROR", e.message, null)
-                    }
+                    val status = showFloatingFileManager()
+                    result.success(status["started"] == true)
                 }
                 "stopFloatingFileManager" -> {
                     try {
@@ -1455,6 +1442,45 @@ class MainActivity : FlutterActivity() {
                 } ?: fallback
         } catch (_: Exception) {
             fallback
+        }
+    }
+
+    private fun showFloatingFileManager(): HashMap<String, Any?> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            !Settings.canDrawOverlays(this)
+        ) {
+            val message = "请允许“显示在其他应用上层”，返回后再次点击文件管理"
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            openOverlayPermissionSettings()
+            return hashMapOf(
+                "started" to false,
+                "needsPermission" to true,
+                "running" to FloatingFileManagerService.isRunning,
+                "message" to message
+            )
+        }
+
+        return try {
+            FloatingFileManagerService.start(applicationContext)
+            val message = "悬浮文件管理器正在打开"
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            hashMapOf(
+                "started" to true,
+                "needsPermission" to false,
+                "running" to true,
+                "message" to message
+            )
+        } catch (e: Exception) {
+            val detail = e.message ?: e.javaClass.simpleName
+            val message = "悬浮文件管理器启动失败：$detail"
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            hashMapOf(
+                "started" to false,
+                "needsPermission" to false,
+                "running" to FloatingFileManagerService.isRunning,
+                "message" to message,
+                "error" to e.toString()
+            )
         }
     }
 

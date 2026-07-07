@@ -20,35 +20,44 @@ class FileManagerOverlayController {
   static const _fallbackScreenSize = Size(393, 780);
   static const _overlayMargin = 6.0;
   static const _overlayTopMargin = 42.0;
+  static const _nativeLaunchTimeout = Duration(seconds: 8);
 
   static bool get isUsingOverlayEntry => _entry != null;
   static bool get isUsingSystemOverlay => _systemOverlayActive;
 
-  static void show() {
-    unawaited(_show());
+  static void show([BuildContext? context]) {
+    unawaited(_show(context));
   }
 
-  static Future<void> _show() async {
+  static Future<void> _show([BuildContext? context]) async {
     if (Platform.isAndroid) {
-      await _closeSystemOverlay();
+      _showMessage('正在打开悬浮文件管理器...', context);
       try {
-        final hasPermission = await _ensureOverlayPermission();
-        if (!hasPermission) {
-          visible.value = false;
-          return;
-        }
-        _showMessage('正在打开悬浮文件管理器...');
-        final started = await NativeBridge.startFloatingFileManager();
+        final status = await NativeBridge.showFloatingFileManager()
+            .timeout(_nativeLaunchTimeout);
+        final started = status['started'] == true;
+        final needsPermission = status['needsPermission'] == true;
+        final message = status['message']?.toString();
         _systemOverlayActive = started;
         visible.value = started;
         if (started) {
-          _showMessage('悬浮文件管理器已打开');
+          _showMessage(message ?? '悬浮文件管理器已打开', context);
+        } else if (needsPermission) {
+          _showMessage(
+            message ?? '需要先允许“显示在其他应用上层”，授权后请再次点击文件管理。',
+            context,
+          );
         } else {
-          _showMessage('悬浮窗没有启动，请确认已允许“显示在其他应用上层”。');
+          _showMessage(message ?? '悬浮文件管理器没有启动。', context);
         }
+      } on TimeoutException {
+        visible.value = false;
+        _systemOverlayActive = false;
+        _showMessage('悬浮文件管理器启动超时，请重启应用后再试。', context);
       } catch (error) {
         visible.value = false;
-        _showMessage('悬浮文件管理器启动失败：$error');
+        _systemOverlayActive = false;
+        _showMessage('悬浮文件管理器启动失败：$error', context);
       }
       return;
     }
@@ -60,29 +69,10 @@ class FileManagerOverlayController {
     _showInApp();
   }
 
-  static Future<bool> _ensureOverlayPermission() async {
-    try {
-      var granted = await FlutterOverlayWindow.isPermissionGranted();
-      if (granted) {
-        return true;
-      }
-      _showMessage('需要先允许“显示在其他应用上层”，授权后请返回再次点击文件管理。');
-      final requested = await FlutterOverlayWindow.requestPermission() == true;
-      granted = requested || await FlutterOverlayWindow.isPermissionGranted();
-      if (!granted) {
-        _showMessage('尚未获得悬浮窗权限，文件管理器无法显示。');
-      }
-      return granted;
-    } catch (error) {
-      _showMessage('无法检查悬浮窗权限：$error');
-      return false;
-    }
-  }
-
-  static void _showMessage(String message) {
-    final context = AppNavigationService.context;
-    if (context == null) return;
-    final messenger = ScaffoldMessenger.maybeOf(context);
+  static void _showMessage(String message, [BuildContext? context]) {
+    final effectiveContext = context ?? AppNavigationService.context;
+    if (effectiveContext == null) return;
+    final messenger = ScaffoldMessenger.maybeOf(effectiveContext);
     if (messenger == null) return;
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
@@ -191,7 +181,6 @@ class FileManagerOverlayController {
 
   static void hide() {
     if (Platform.isAndroid) {
-      unawaited(_closeSystemOverlay());
       unawaited(NativeBridge.stopFloatingFileManager());
     }
     _entry?.remove();
