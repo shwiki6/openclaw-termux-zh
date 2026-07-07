@@ -16,6 +16,10 @@ class FileManagerOverlayController {
   static OverlayEntry? _entry;
   static bool _systemOverlayActive = false;
 
+  static const _fallbackScreenSize = Size(393, 780);
+  static const _overlayMargin = 12.0;
+  static const _overlayTopMargin = 56.0;
+
   static bool get isUsingOverlayEntry => _entry != null;
   static bool get isUsingSystemOverlay => _systemOverlayActive;
 
@@ -47,9 +51,10 @@ class FileManagerOverlayController {
       if (await FlutterOverlayWindow.isActive()) {
         return true;
       }
+      final metrics = _initialOverlayMetrics();
       await FlutterOverlayWindow.showOverlay(
-        width: 720,
-        height: 520,
+        width: metrics.physicalSize.width.round(),
+        height: metrics.physicalSize.height.round(),
         alignment: OverlayAlignment.topLeft,
         flag: OverlayFlag.focusPointer,
         visibility: NotificationVisibility.visibilityPrivate,
@@ -57,12 +62,48 @@ class FileManagerOverlayController {
         overlayContent: '全局悬浮文件管理器正在运行',
         enableDrag: false,
         positionGravity: PositionGravity.none,
-        startPosition: const OverlayPosition(16, 72),
+        startPosition: OverlayPosition(
+          metrics.physicalPosition.dx,
+          metrics.physicalPosition.dy,
+        ),
       );
       return true;
     } catch (_) {
       return false;
     }
+  }
+
+  static _SystemOverlayMetrics _initialOverlayMetrics() {
+    final context = AppNavigationService.context;
+    final mediaQuery = context == null ? null : MediaQuery.maybeOf(context);
+    final screen = mediaQuery?.size ?? _fallbackScreenSize;
+    final scale = mediaQuery?.devicePixelRatio ?? 1.0;
+    final availableWidth = math.max(
+      300.0,
+      screen.width - (_overlayMargin * 2),
+    );
+    final width = screen.width >= 700
+        ? math.min(720.0, availableWidth)
+        : availableWidth;
+    final availableHeight = math.max(
+      300.0,
+      screen.height - _overlayTopMargin - _overlayMargin,
+    );
+    final height = screen.height >= 720
+        ? math.min(620.0, availableHeight)
+        : availableHeight;
+    final logicalSize = Size(width, height);
+    final logicalPosition = Offset(
+      _overlayMargin,
+      math.min(_overlayTopMargin, math.max(_overlayMargin, screen.height / 10)),
+    );
+    return _SystemOverlayMetrics(
+      physicalSize: Size(logicalSize.width * scale, logicalSize.height * scale),
+      physicalPosition: Offset(
+        logicalPosition.dx * scale,
+        logicalPosition.dy * scale,
+      ),
+    );
   }
 
   static void _showInApp() {
@@ -159,6 +200,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   static const _smallTextSize = 12.0;
   static const _tabTextSize = 11.5;
   static const _editorTextSize = 13.0;
+  static const _systemMoveInterval = Duration(milliseconds: 32);
   static const _systemResizeInterval = Duration(milliseconds: 48);
   static const _minimizedWindowSize = Size(300, _titleBarHeight);
 
@@ -172,13 +214,16 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   final _agentRoots = <String>{};
 
   late Offset _offset;
-  Offset _systemOverlayPosition = const Offset(16, 72);
+  Offset _systemOverlayPosition = const Offset(12, 56);
   Size _windowSize = const Size(720, 520);
   Size? _restoreWindowSize;
   _SelectedEntry? _selection;
   _SelectedEntry? _inlineMenuSelection;
+  Timer? _systemMoveTimer;
   Timer? _systemResizeTimer;
+  Offset? _pendingSystemOverlayPosition;
   Size? _pendingSystemOverlaySize;
+  DateTime _lastSystemOverlayMove = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastSystemOverlayResize = DateTime.fromMillisecondsSinceEpoch(0);
   final _openFileTabs = <_OpenFileTab>[];
   int? _activeFileIndex;
@@ -196,6 +241,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
 
   @override
   void dispose() {
+    _systemMoveTimer?.cancel();
     _systemResizeTimer?.cancel();
     for (final tab in _openFileTabs) {
       tab.controller.dispose();
@@ -222,7 +268,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   void _moveWindow(DragUpdateDetails details) {
     if (widget.systemOverlay) {
       _systemOverlayPosition += details.delta;
-      unawaited(_moveSystemOverlay(_systemOverlayPosition));
+      _scheduleSystemOverlayMove(_systemOverlayPosition);
       return;
     }
     setState(() {
@@ -230,10 +276,38 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     });
   }
 
-  Future<void> _moveSystemOverlay(Offset offset) async {
+  void _flushSystemOverlayMove() {
+    final position = _pendingSystemOverlayPosition;
+    if (position == null) return;
+    _pendingSystemOverlayPosition = null;
+    _systemMoveTimer?.cancel();
+    _systemMoveTimer = null;
+    _lastSystemOverlayMove = DateTime.now();
+    unawaited(_moveSystemOverlay(position));
+  }
+
+  void _scheduleSystemOverlayMove(Offset position) {
+    _pendingSystemOverlayPosition = position;
+    final elapsed = DateTime.now().difference(_lastSystemOverlayMove);
+    if (elapsed >= _systemMoveInterval) {
+      _flushSystemOverlayMove();
+      return;
+    }
+    _systemMoveTimer ??= Timer(
+      _systemMoveInterval - elapsed,
+      _flushSystemOverlayMove,
+    );
+  }
+
+  Future<void> _moveSystemOverlay(Offset logicalOffset) async {
+    final scale = MediaQuery.devicePixelRatioOf(context);
+    final physicalOffset = Offset(
+      logicalOffset.dx * scale,
+      logicalOffset.dy * scale,
+    );
     try {
       await FlutterOverlayWindow.moveOverlay(
-        OverlayPosition(offset.dx, offset.dy),
+        OverlayPosition(physicalOffset.dx, physicalOffset.dy),
       );
     } catch (_) {}
   }
@@ -247,7 +321,9 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   }
 
   void _minimizeWindow() {
-    final previous = _windowSize;
+    final previous = widget.systemOverlay
+        ? MediaQuery.sizeOf(context)
+        : _windowSize;
     setState(() {
       _restoreWindowSize = previous;
       _windowSize = _minimizedWindowSize;
@@ -312,10 +388,11 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   }
 
   Future<void> _resizeSystemOverlay(int width, int height) async {
+    final scale = MediaQuery.devicePixelRatioOf(context);
     try {
       await FlutterOverlayWindow.resizeOverlay(
-        width,
-        height,
+        (width * scale).round(),
+        (height * scale).round(),
         false,
       );
     } catch (_) {}
@@ -858,19 +935,27 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   Widget build(BuildContext context) {
     final baseTheme = Theme.of(context);
     final screen = MediaQuery.sizeOf(context);
-    final width = _minimized
-        ? _windowSize.width
-        : _clampWindowWidth(screen, _windowSize.width);
-    final height = _minimized
-        ? _windowSize.height
-        : _clampWindowHeight(screen, _windowSize.height);
+    final width = widget.systemOverlay
+        ? (_minimized ? _windowSize.width : screen.width)
+        : (_minimized
+            ? _windowSize.width
+            : _clampWindowWidth(screen, _windowSize.width));
+    final height = widget.systemOverlay
+        ? (_minimized ? _windowSize.height : screen.height)
+        : (_minimized
+            ? _windowSize.height
+            : _clampWindowHeight(screen, _windowSize.height));
     final inset = widget.systemOverlay ? 0.0 : 8.0;
     final maxLeft = screen.width - width - inset;
     final maxTop = screen.height - height - inset;
     final leftUpper = maxLeft < inset ? inset : maxLeft;
     final topUpper = maxTop < inset ? inset : maxTop;
-    final left = _offset.dx.clamp(inset, leftUpper).toDouble();
-    final top = _offset.dy.clamp(inset, topUpper).toDouble();
+    final left = widget.systemOverlay
+        ? 0.0
+        : _offset.dx.clamp(inset, leftUpper).toDouble();
+    final top = widget.systemOverlay
+        ? 0.0
+        : _offset.dy.clamp(inset, topUpper).toDouble();
     final compactTheme = baseTheme.copyWith(
       textTheme: baseTheme.textTheme.apply(fontSizeFactor: _fontScale),
     );
@@ -913,8 +998,8 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
                                 : _buildFileEditor(_activeFileTab!),
                           ),
                           _activeFileTab == null
-                              ? _buildSelectionBar()
-                              : _buildFileEditorBar(_activeFileTab!),
+                              ? _buildSelectionBar(screen)
+                              : _buildFileEditorBar(_activeFileTab!, screen),
                         ],
                       ],
                     ),
@@ -925,12 +1010,6 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
                         right: 8,
                         bottom: _bottomBarHeight + 8,
                         child: _buildInlineEntryMenu(_inlineMenuSelection!),
-                      ),
-                    if (!_minimized)
-                      Positioned(
-                        right: 2,
-                        bottom: 2,
-                        child: _buildResizeHandle(screen),
                       ),
                   ],
                 ),
@@ -946,6 +1025,8 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onPanUpdate: _moveWindow,
+      onPanEnd: (_) => _flushSystemOverlayMove(),
+      onPanCancel: _flushSystemOverlayMove,
       child: Container(
         height: _titleBarHeight,
         color: Colors.black,
@@ -1002,34 +1083,6 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
   Widget _buildBody() {
     if (_initializing) {
       return const Center(child: CircularProgressIndicator());
-    }
-
-    final narrow = _windowSize.width < 560;
-    if (narrow) {
-      return DefaultTabController(
-        length: 2,
-        child: Column(
-          children: [
-            const Material(
-              color: Colors.black,
-              child: TabBar(
-                tabs: [
-                  Tab(text: '智能体'),
-                  Tab(text: '目录'),
-                ],
-              ),
-            ),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  _buildPane(_left),
-                  _buildPane(_right),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
     }
 
     return Row(
@@ -1241,7 +1294,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     );
   }
 
-  Widget _buildFileEditorBar(_OpenFileTab tab) {
+  Widget _buildFileEditorBar(_OpenFileTab tab, Size screen) {
     return Container(
       height: _bottomBarHeight,
       color: Colors.black,
@@ -1299,6 +1352,8 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
             icon: const Icon(Icons.close, size: 21),
             color: Colors.white,
           ),
+          const SizedBox(width: 4),
+          _buildResizeHandle(screen),
         ],
       ),
     );
@@ -1322,12 +1377,12 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
                     constraints:
-                        const BoxConstraints(minWidth: 36, minHeight: 36),
+                        const BoxConstraints(minWidth: 30, minHeight: 30),
                     onPressed: () => _goUp(pane),
                     icon: const Icon(
                       Icons.arrow_upward,
                       color: Colors.white,
-                      size: 20,
+                      size: 18,
                     ),
                   ),
                   IconButton(
@@ -1335,12 +1390,12 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
                     constraints:
-                        const BoxConstraints(minWidth: 36, minHeight: 36),
+                        const BoxConstraints(minWidth: 30, minHeight: 30),
                     onPressed: () => _goHome(pane),
                     icon: const Icon(
                       Icons.home_outlined,
                       color: Colors.white,
-                      size: 20,
+                      size: 18,
                     ),
                   ),
                   Expanded(
@@ -1348,7 +1403,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
                       pane.title,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 13,
+                        fontSize: 12,
                         fontWeight: FontWeight.w700,
                       ),
                       overflow: TextOverflow.ellipsis,
@@ -1359,12 +1414,12 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
                     constraints:
-                        const BoxConstraints(minWidth: 36, minHeight: 36),
+                        const BoxConstraints(minWidth: 30, minHeight: 30),
                     onPressed: () => _create(pane, directory: true),
                     icon: const Icon(
                       Icons.create_new_folder_outlined,
                       color: Colors.white,
-                      size: 20,
+                      size: 18,
                     ),
                   ),
                   IconButton(
@@ -1372,12 +1427,12 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
                     constraints:
-                        const BoxConstraints(minWidth: 36, minHeight: 36),
+                        const BoxConstraints(minWidth: 30, minHeight: 30),
                     onPressed: () => _create(pane, directory: false),
                     icon: const Icon(
                       Icons.note_add_outlined,
                       color: Colors.white,
-                      size: 20,
+                      size: 18,
                     ),
                   ),
                 ],
@@ -1395,37 +1450,42 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
               if (pane == _right)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: Row(
-                    children: [
-                      ChoiceChip(
-                        visualDensity: VisualDensity.compact,
-                        labelStyle: const TextStyle(fontSize: _smallTextSize),
-                        label: const Text('私有'),
-                        selected: !_rightExternalMode,
-                        onSelected: (_) => _switchRightMode(external: false),
-                      ),
-                      const SizedBox(width: 6),
-                      ChoiceChip(
-                        visualDensity: VisualDensity.compact,
-                        labelStyle: const TextStyle(fontSize: _smallTextSize),
-                        label: const Text('外部'),
-                        selected: _rightExternalMode,
-                        onSelected: (_) => _switchRightMode(external: true),
-                      ),
-                      const Spacer(),
-                      if (!_externalPermission)
-                        TextButton.icon(
-                          style: TextButton.styleFrom(
-                            visualDensity: VisualDensity.compact,
-                            padding: const EdgeInsets.symmetric(horizontal: 6),
-                            textStyle:
-                                const TextStyle(fontSize: _smallTextSize),
-                          ),
-                          onPressed: _requestStoragePermission,
-                          icon: const Icon(Icons.security, size: 16),
-                          label: const Text('授权'),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        ChoiceChip(
+                          visualDensity: VisualDensity.compact,
+                          labelStyle: const TextStyle(fontSize: _smallTextSize),
+                          label: const Text('私有'),
+                          selected: !_rightExternalMode,
+                          onSelected: (_) => _switchRightMode(external: false),
                         ),
-                    ],
+                        const SizedBox(width: 6),
+                        ChoiceChip(
+                          visualDensity: VisualDensity.compact,
+                          labelStyle: const TextStyle(fontSize: _smallTextSize),
+                          label: const Text('外部'),
+                          selected: _rightExternalMode,
+                          onSelected: (_) => _switchRightMode(external: true),
+                        ),
+                        if (!_externalPermission) ...[
+                          const SizedBox(width: 6),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 6),
+                              textStyle:
+                                  const TextStyle(fontSize: _smallTextSize),
+                            ),
+                            onPressed: _requestStoragePermission,
+                            icon: const Icon(Icons.security, size: 16),
+                            label: const Text('授权'),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
             ],
@@ -1491,6 +1551,9 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     final subtitle = subtitleParts.join(' · ');
     return ListTile(
       dense: true,
+      contentPadding: const EdgeInsets.only(left: 6, right: 2),
+      horizontalTitleGap: 6,
+      minLeadingWidth: 24,
       selected: selected,
       selectedTileColor: _accentColor.withAlpha(36),
       leading: Icon(
@@ -1650,7 +1713,7 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     unawaited(Future<void>.sync(action));
   }
 
-  Widget _buildSelectionBar() {
+  Widget _buildSelectionBar(Size screen) {
     final selected = _selection;
     return Container(
       height: _bottomBarHeight,
@@ -1711,6 +1774,8 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
             color: Colors.white,
             disabledColor: Colors.white38,
           ),
+          const SizedBox(width: 4),
+          _buildResizeHandle(screen),
         ],
       ),
     );
@@ -1720,23 +1785,32 @@ class _FloatingFileManagerWindowState extends State<FloatingFileManagerWindow> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onPanUpdate: (details) {
+        final currentSize = widget.systemOverlay
+            ? MediaQuery.sizeOf(context)
+            : _windowSize;
         _resizeWindow(
           screen,
-          _windowSize.width + details.delta.dx,
-          _windowSize.height + details.delta.dy,
+          currentSize.width + details.delta.dx,
+          currentSize.height + details.delta.dy,
         );
       },
       onPanEnd: (_) => _flushSystemOverlayResize(),
       onPanCancel: _flushSystemOverlayResize,
       child: Container(
-        width: 32,
-        height: 32,
-        alignment: Alignment.bottomRight,
-        padding: const EdgeInsets.all(4),
-        child: const Icon(
-          Icons.open_in_full,
-          size: 18,
-          color: Colors.white,
+        width: 42,
+        height: 42,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: const Color(0xFF1F1F1F),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Transform.rotate(
+          angle: math.pi / 2,
+          child: const Icon(
+            Icons.open_in_full,
+            size: 20,
+            color: Colors.white,
+          ),
         ),
       ),
     );
@@ -1800,6 +1874,16 @@ class _SelectedEntry {
   const _SelectedEntry({
     required this.pane,
     required this.entry,
+  });
+}
+
+class _SystemOverlayMetrics {
+  final Size physicalSize;
+  final Offset physicalPosition;
+
+  const _SystemOverlayMetrics({
+    required this.physicalSize,
+    required this.physicalPosition,
   });
 }
 
