@@ -140,7 +140,7 @@
       flex-shrink: 0;
       border: 1px solid #3f3f46;
       border-radius: 6px;
-      background: #18181b;
+      background: linear-gradient(180deg, #202024, #141417);
       color: #f4f4f5;
       padding: 0 8px;
       font-size: 10px;
@@ -240,19 +240,20 @@
     .fm-tab {
       display: inline-flex;
       height: 26px;
+      width: 32px;
       align-items: center;
       justify-content: center;
       border: 1px solid #27272a;
       border-radius: 6px;
       background: #18181b;
       color: #a1a1aa;
-      padding: 0 8px;
+      padding: 0;
       font-size: 10px;
     }
 
     .fm-tab.active {
-      border-color: #dc2626;
-      background: #7f1d1d;
+      border-color: #ef4444;
+      background: #991b1b;
       color: #fff;
     }
 
@@ -458,8 +459,8 @@
     <section id="editor" class="hidden h-[42vh] shrink-0 flex-col border-t border-zinc-800 bg-zinc-950">
       <div class="fm-editor-bar">
         <button id="saveButton" class="cmd primary" data-action="save" title="保存"><i data-lucide="save"></i></button>
-        <button id="previewTab" class="fm-tab hidden" data-action="switch-view" data-view="preview">预览</button>
-        <button id="sourceTab" class="fm-tab hidden" data-action="switch-view" data-view="source">源码</button>
+        <button id="previewTab" class="fm-tab hidden" data-action="switch-view" data-view="preview" title="预览"><i data-lucide="eye"></i></button>
+        <button id="sourceTab" class="fm-tab hidden" data-action="switch-view" data-view="source" title="源码"><i data-lucide="code-2"></i></button>
         <button class="cmd" data-action="download-editing" title="打开/下载"><i data-lucide="download"></i></button>
         <button class="cmd" data-action="close-editor" title="关闭"><i data-lucide="x"></i></button>
         <div id="editPath" class="min-w-0 flex-1 truncate text-[10px] text-zinc-400"></div>
@@ -474,13 +475,13 @@
           <div id="sheetTitle" class="min-w-0 flex-1 truncate text-[11px] font-medium text-zinc-100"></div>
           <button class="cmd" data-action="close-sheet" title="关闭"><i data-lucide="x"></i></button>
         </div>
-        <div class="grid grid-cols-3 gap-1 p-2">
-          <button class="sheetBtn" data-action="open-selected"><i data-lucide="external-link"></i><span>打开</span></button>
-          <button class="sheetBtn" data-action="rename"><i data-lucide="pencil"></i><span>重命名</span></button>
-          <button class="sheetBtn danger" data-action="delete"><i data-lucide="trash-2"></i><span>删除</span></button>
-          <button class="sheetBtn" data-action="copy"><i data-lucide="copy"></i><span>复制</span></button>
-          <button class="sheetBtn" data-action="move"><i data-lucide="move-right"></i><span>移动</span></button>
-          <button class="sheetBtn" data-action="close-sheet"><i data-lucide="check"></i><span>完成</span></button>
+        <div class="grid grid-cols-6 gap-1.5 p-2">
+          <button class="sheetBtn" data-action="open-selected" title="打开" aria-label="打开"><i data-lucide="external-link"></i></button>
+          <button class="sheetBtn" data-action="rename" title="重命名" aria-label="重命名"><i data-lucide="pencil"></i></button>
+          <button class="sheetBtn danger" data-action="delete" title="删除" aria-label="删除"><i data-lucide="trash-2"></i></button>
+          <button class="sheetBtn" data-action="copy" title="复制" aria-label="复制"><i data-lucide="copy"></i></button>
+          <button class="sheetBtn" data-action="move" title="移动" aria-label="移动"><i data-lucide="move-right"></i></button>
+          <button class="sheetBtn" data-action="close-sheet" title="完成" aria-label="完成"><i data-lucide="check"></i></button>
         </div>
       </div>
     </section>

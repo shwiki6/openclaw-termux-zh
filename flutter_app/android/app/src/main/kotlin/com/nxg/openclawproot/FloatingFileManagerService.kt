@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Environment
 import android.os.IBinder
@@ -45,17 +46,21 @@ import org.json.JSONObject
 class FloatingFileManagerService : Service() {
     private var windowManager: WindowManager? = null
     private var rootView: LinearLayout? = null
+    private var titleBar: LinearLayout? = null
+    private var minimizedButton: TextView? = null
     private var webView: WebView? = null
     private var bottomBar: LinearLayout? = null
     private var params: WindowManager.LayoutParams? = null
     private var server: FloatingFileManagerServer? = null
     private var minimized = false
+    private var restoreWidth = 0
     private var restoreHeight = 0
 
     private var dragStartRawX = 0f
     private var dragStartRawY = 0f
     private var dragStartX = 0
     private var dragStartY = 0
+    private var dragMoved = false
     private var resizeStartRawX = 0f
     private var resizeStartRawY = 0f
     private var resizeStartWidth = 0
@@ -98,6 +103,8 @@ class FloatingFileManagerService : Service() {
         webView?.destroy()
         server?.stop()
         webView = null
+        titleBar = null
+        minimizedButton = null
         rootView = null
         bottomBar = null
         params = null
@@ -112,39 +119,59 @@ class FloatingFileManagerService : Service() {
         val metrics = resources.displayMetrics
         val width = min(metrics.widthPixels - dp(12), dp(720))
         val height = min(metrics.heightPixels - dp(58), dp(620))
+        restoreWidth = width
         restoreHeight = height
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(18, 18, 18))
+            background = windowBackground()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                elevation = dp(12).toFloat()
+            }
         }
         rootView = root
+
+        val mini = TextView(this).apply {
+            text = "☰"
+            setTextColor(Color.WHITE)
+            textSize = 22f
+            gravity = Gravity.CENTER
+            background = minimizedBackground()
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
+            setOnTouchListener { _, event -> handleMinimizedTouch(event) }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                elevation = dp(14).toFloat()
+            }
+        }
+        minimizedButton = mini
 
         val title = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), 0, dp(2), 0)
+            setPadding(dp(8), 0, dp(4), 0)
             setBackgroundColor(Color.BLACK)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(32)
+                dp(30)
             )
         }
+        titleBar = title
         val titleText = TextView(this).apply {
             text = "文件管理"
             setTextColor(Color.WHITE)
-            textSize = 13f
+            textSize = 12f
             gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
         }
-        val minimize = titleButton("一") { toggleMinimized() }
-        val close = titleButton("X") { stopSelf() }
+        val minimize = titleButton("−") { toggleMinimized() }
+        val close = titleButton("×") { stopSelf() }
         title.addView(TextView(this).apply {
             text = "☰"
             setTextColor(Color.LTGRAY)
-            textSize = 16f
+            textSize = 15f
             gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(dp(24), LinearLayout.LayoutParams.MATCH_PARENT)
+            layoutParams = LinearLayout.LayoutParams(dp(22), LinearLayout.LayoutParams.MATCH_PARENT)
         })
         title.addView(titleText)
         title.addView(minimize)
@@ -180,10 +207,10 @@ class FloatingFileManagerService : Service() {
         val resize = TextView(this).apply {
             text = "⤡"
             setTextColor(Color.WHITE)
-            textSize = 18f
+            textSize = 17f
             gravity = Gravity.CENTER
             setBackgroundColor(Color.rgb(28, 28, 28))
-            layoutParams = LinearLayout.LayoutParams(dp(54), LinearLayout.LayoutParams.MATCH_PARENT)
+            layoutParams = LinearLayout.LayoutParams(dp(50), LinearLayout.LayoutParams.MATCH_PARENT)
             setOnTouchListener { _, event -> handleResize(event) }
         }
         val bar = LinearLayout(this).apply {
@@ -192,12 +219,12 @@ class FloatingFileManagerService : Service() {
             setBackgroundColor(Color.BLACK)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(32)
+                dp(26)
             )
             addView(TextView(this@FloatingFileManagerService).apply {
-                text = "拖动右侧调整大小"
+                text = "调整大小"
                 setTextColor(Color.LTGRAY)
-                textSize = 11f
+                textSize = 10f
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(8), 0, 0, 0)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
@@ -206,6 +233,7 @@ class FloatingFileManagerService : Service() {
         }
         bottomBar = bar
 
+        root.addView(mini)
         root.addView(title)
         root.addView(browser)
         root.addView(bar)
@@ -246,16 +274,54 @@ class FloatingFileManagerService : Service() {
                 dragStartRawY = event.rawY
                 dragStartX = layoutParams.x
                 dragStartY = layoutParams.y
+                dragMoved = false
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = (event.rawX - dragStartRawX).toInt()
                 val dy = (event.rawY - dragStartRawY).toInt()
+                if (kotlin.math.abs(dx) + kotlin.math.abs(dy) > dp(4)) {
+                    dragMoved = true
+                }
                 layoutParams.x = clamp(dragStartX + dx, 0, resources.displayMetrics.widthPixels - dp(56))
                 layoutParams.y = clamp(dragStartY + dy, 0, resources.displayMetrics.heightPixels - dp(56))
                 manager.updateViewLayout(rootView, layoutParams)
                 return true
             }
+        }
+        return false
+    }
+
+    private fun handleMinimizedTouch(event: MotionEvent): Boolean {
+        val layoutParams = params ?: return false
+        val manager = windowManager ?: return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                dragStartRawX = event.rawX
+                dragStartRawY = event.rawY
+                dragStartX = layoutParams.x
+                dragStartY = layoutParams.y
+                dragMoved = false
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = (event.rawX - dragStartRawX).toInt()
+                val dy = (event.rawY - dragStartRawY).toInt()
+                if (kotlin.math.abs(dx) + kotlin.math.abs(dy) > dp(4)) {
+                    dragMoved = true
+                }
+                layoutParams.x = clamp(dragStartX + dx, 0, resources.displayMetrics.widthPixels - dp(56))
+                layoutParams.y = clamp(dragStartY + dy, 0, resources.displayMetrics.heightPixels - dp(56))
+                manager.updateViewLayout(rootView, layoutParams)
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!dragMoved) {
+                    toggleMinimized()
+                }
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> return true
         }
         return false
     }
@@ -290,20 +356,32 @@ class FloatingFileManagerService : Service() {
     private fun toggleMinimized() {
         val layoutParams = params ?: return
         val manager = windowManager ?: return
+        val view = rootView ?: return
         minimized = !minimized
         if (minimized) {
+            restoreWidth = layoutParams.width
             restoreHeight = layoutParams.height
+            view.background = minimizedBackground()
+            titleBar?.visibility = View.GONE
             webView?.visibility = View.GONE
             bottomBar?.visibility = View.GONE
-            layoutParams.height = dp(32)
-            layoutParams.width = min(layoutParams.width, dp(320))
+            minimizedButton?.visibility = View.VISIBLE
+            layoutParams.width = dp(56)
+            layoutParams.height = dp(56)
         } else {
+            val maxWidth = resources.displayMetrics.widthPixels - dp(8)
+            val maxHeight = resources.displayMetrics.heightPixels - dp(24)
+            view.background = windowBackground()
+            minimizedButton?.visibility = View.GONE
+            titleBar?.visibility = View.VISIBLE
             webView?.visibility = View.VISIBLE
             bottomBar?.visibility = View.VISIBLE
-            layoutParams.height = max(restoreHeight, dp(360))
-            layoutParams.width = max(layoutParams.width, dp(330))
+            layoutParams.width = clamp(max(restoreWidth, dp(330)), dp(330), maxWidth)
+            layoutParams.height = clamp(max(restoreHeight, dp(360)), dp(360), maxHeight)
         }
-        manager.updateViewLayout(rootView, layoutParams)
+        layoutParams.x = clamp(layoutParams.x, 0, resources.displayMetrics.widthPixels - dp(56))
+        layoutParams.y = clamp(layoutParams.y, 0, resources.displayMetrics.heightPixels - dp(56))
+        manager.updateViewLayout(view, layoutParams)
     }
 
     private fun restoreWindowIntoView() {
@@ -315,10 +393,17 @@ class FloatingFileManagerService : Service() {
         val maxHeight = metrics.heightPixels - dp(24)
         if (minimized) {
             minimized = false
+            rootView?.background = windowBackground()
+            minimizedButton?.visibility = View.GONE
+            titleBar?.visibility = View.VISIBLE
             webView?.visibility = View.VISIBLE
             bottomBar?.visibility = View.VISIBLE
         }
-        layoutParams.width = clamp(layoutParams.width, dp(330), maxWidth)
+        layoutParams.width = clamp(
+            max(layoutParams.width, restoreWidth).takeIf { it > 0 } ?: dp(420),
+            dp(330),
+            maxWidth
+        )
         layoutParams.height = clamp(
             max(layoutParams.height, restoreHeight).takeIf { it > 0 } ?: dp(420),
             dp(360),
@@ -333,14 +418,31 @@ class FloatingFileManagerService : Service() {
         return TextView(this).apply {
             text = label
             setTextColor(Color.WHITE)
-            textSize = 14f
+            textSize = 16f
             gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(dp(36), LinearLayout.LayoutParams.MATCH_PARENT)
+            layoutParams = LinearLayout.LayoutParams(dp(34), LinearLayout.LayoutParams.MATCH_PARENT)
             setOnClickListener { action() }
         }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun windowBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(10).toFloat()
+            setColor(Color.rgb(18, 18, 18))
+            setStroke(dp(1), Color.rgb(42, 42, 42))
+        }
+    }
+
+    private fun minimizedBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.rgb(9, 9, 11))
+            setStroke(dp(2), Color.rgb(220, 38, 38))
+        }
+    }
 
     private fun clamp(value: Int, minValue: Int, maxValue: Int): Int {
         return max(minValue, min(value, maxValue))

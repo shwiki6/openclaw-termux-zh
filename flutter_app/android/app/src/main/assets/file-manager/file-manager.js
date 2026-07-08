@@ -107,10 +107,10 @@
   function decorateStaticButtons() {
     var style = document.createElement("style");
     style.textContent =
-      ".cmd{display:inline-flex;height:28px;min-width:28px;align-items:center;justify-content:center;border-radius:6px;border:1px solid #27272a;background:#18181b;color:#fafafa;padding:0 7px}" +
-      ".cmd:active{background:#3f3f46}.cmd.primary{background:#dc2626;border-color:#dc2626}.cmd.danger{color:#fca5a5}.cmd:disabled{opacity:.45}" +
-      ".sheetBtn{display:flex;height:50px;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-radius:6px;border:1px solid #27272a;background:#18181b;color:#f4f4f5;font-size:10px}" +
-      ".sheetBtn:active{background:#3f3f46}.sheetBtn.danger{color:#fca5a5}.sheetBtn svg{width:16px;height:16px}";
+      ".cmd{display:inline-flex;height:28px;min-width:28px;align-items:center;justify-content:center;border-radius:7px;border:1px solid #27272a;background:#18181b;color:#fafafa;padding:0 7px;transition:background .12s,border-color .12s,transform .12s}" +
+      ".cmd:active{background:#3f3f46;transform:scale(.96)}.cmd.primary{background:#dc2626;border-color:#ef4444}.cmd.danger{color:#fca5a5}.cmd:disabled{opacity:.45}.cmd svg{width:15px;height:15px}" +
+      ".sheetBtn{display:flex;height:42px;align-items:center;justify-content:center;border-radius:8px;border:1px solid #27272a;background:#18181b;color:#f4f4f5}" +
+      ".sheetBtn:active{background:#3f3f46;transform:scale(.96)}.sheetBtn.danger{border-color:#7f1d1d;background:#2a0f0f;color:#fca5a5}.sheetBtn svg{width:18px;height:18px}";
     document.head.appendChild(style);
     refreshIcons();
   }
@@ -328,8 +328,8 @@
     $("editBody").innerHTML =
       '<div class="fm-empty-preview"><b>' + esc(path.split("/").pop() || path) + '</b>' +
       '<span>' + esc(message) + '</span><div class="flex gap-2">' +
-      '<button class="cmd" data-action="download-editing">' + icon("download") + '</button>' +
-      '<button class="cmd" data-action="text-editing">按文本打开</button></div></div>';
+      '<button class="cmd" data-action="download-editing" title="打开/下载" aria-label="打开/下载">' + icon("download") + '</button>' +
+      '<button class="cmd" data-action="text-editing" title="按文本打开" aria-label="按文本打开">' + icon("file-code") + "</button></div></div>";
     bindActions($("editBody"));
     refreshIcons();
   }
