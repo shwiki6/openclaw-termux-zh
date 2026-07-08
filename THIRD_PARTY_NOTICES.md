@@ -99,6 +99,71 @@ Direct dependencies currently declared:
 - Required notices: license text is preserved in
   `flutter_app/android/app/src/main/assets/file-manager/vendor/licenses/lucide-LICENSE`.
 
+## Ace Editor / ace-builds
+
+- Version: 1.44.0.
+- License: BSD-3-Clause.
+- Used as: local browser code editor and syntax highlighter for the floating
+  WebView file manager.
+- Upstream: https://github.com/ajaxorg/ace-builds
+- Source for distributed binary: npm package `ace-builds@1.44.0`.
+- Modifications: none; selected `src-min-noconflict` browser files are copied
+  into `flutter_app/android/app/src/main/assets/file-manager/vendor/ace/`.
+- Required notices: license text is preserved in
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/licenses/ace-builds-LICENSE`.
+
+## Marked
+
+- Version: 18.0.5.
+- License: MIT.
+- Used as: local Markdown renderer for the floating WebView file manager.
+- Upstream: https://github.com/markedjs/marked
+- Source for distributed binary: npm package `marked@18.0.5`.
+- Modifications: none; `lib/marked.umd.js` is copied into
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/docs/marked.umd.js`.
+- Required notices: license text is preserved in
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/licenses/marked-LICENSE`.
+
+## Mammoth
+
+- Version: 1.12.0.
+- License: BSD-2-Clause.
+- Used as: local DOCX-to-HTML preview library for the floating WebView file
+  manager.
+- Upstream: https://github.com/mwilliamson/mammoth.js
+- Source for distributed binary: npm package `mammoth@1.12.0`.
+- Modifications: none; `mammoth.browser.min.js` is copied into
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/docs/mammoth.browser.min.js`.
+- Required notices: license text is preserved in
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/licenses/mammoth-LICENSE`.
+
+## SheetJS xlsx
+
+- Version: 0.18.5.
+- License: Apache-2.0.
+- Used as: local XLS/XLSX/ODS spreadsheet preview library for the floating
+  WebView file manager.
+- Upstream: https://github.com/SheetJS/sheetjs
+- Source for distributed binary: npm package `xlsx@0.18.5`.
+- Modifications: none; `dist/xlsx.full.min.js` is copied into
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/docs/xlsx.full.min.js`.
+- Required notices: license text is preserved in
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/licenses/xlsx-LICENSE`.
+
+## JSZip
+
+- Version: 3.10.1.
+- License: MIT OR GPL-3.0-or-later; this project distributes it under the MIT
+  option.
+- Used as: local ZIP/OOXML reader for PPTX text-outline preview in the floating
+  WebView file manager.
+- Upstream: https://github.com/Stuk/jszip
+- Source for distributed binary: npm package `jszip@3.10.1`.
+- Modifications: none; `dist/jszip.min.js` is copied into
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/docs/jszip.min.js`.
+- Required notices: license text is preserved in
+  `flutter_app/android/app/src/main/assets/file-manager/vendor/licenses/jszip-LICENSE`.
+
 ## PRoot From Termux Packages
 
 - Version: resolved from the Termux stable package index at build time.

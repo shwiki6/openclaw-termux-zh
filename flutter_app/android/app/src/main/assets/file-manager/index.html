@@ -6,6 +6,11 @@
   <title>文件管理</title>
   <script src="/assets/vendor/tailwind-browser.js"></script>
   <script src="/assets/vendor/lucide.min.js"></script>
+  <script src="/assets/vendor/ace/ace.js"></script>
+  <script src="/assets/vendor/docs/marked.umd.js"></script>
+  <script src="/assets/vendor/docs/mammoth.browser.min.js"></script>
+  <script src="/assets/vendor/docs/xlsx.full.min.js"></script>
+  <script src="/assets/vendor/docs/jszip.min.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -220,6 +225,216 @@
     .fm-dialog {
       max-height: calc(100vh - 76px);
     }
+
+    .fm-editor-bar {
+      display: flex;
+      height: 32px;
+      flex-shrink: 0;
+      align-items: center;
+      gap: 4px;
+      border-bottom: 1px solid #27272a;
+      background: #000;
+      padding: 3px 6px;
+    }
+
+    .fm-tab {
+      display: inline-flex;
+      height: 26px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #27272a;
+      border-radius: 6px;
+      background: #18181b;
+      color: #a1a1aa;
+      padding: 0 8px;
+      font-size: 10px;
+    }
+
+    .fm-tab.active {
+      border-color: #dc2626;
+      background: #7f1d1d;
+      color: #fff;
+    }
+
+    .fm-editor-shell,
+    .fm-editor-view,
+    .fm-preview,
+    .fm-code-pane {
+      height: 100%;
+      min-height: 0;
+    }
+
+    .fm-editor-view {
+      display: flex;
+      flex-direction: column;
+      background: #09090b;
+    }
+
+    .fm-preview {
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      touch-action: pan-y;
+      color: #e4e4e7;
+    }
+
+    .fm-code-pane {
+      position: relative;
+      overflow: hidden;
+    }
+
+    #codeEditor {
+      position: absolute;
+      inset: 0;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .fm-media-preview {
+      display: flex;
+      height: 100%;
+      min-height: 0;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+      background: #050505;
+      padding: 8px;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-x pan-y pinch-zoom;
+    }
+
+    .fm-media-preview img,
+    .fm-media-preview video {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    .fm-media-preview audio {
+      width: 100%;
+    }
+
+    .fm-doc {
+      min-height: 100%;
+      background: #f8fafc;
+      color: #111827;
+      padding: 12px;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .fm-doc.dark {
+      background: #09090b;
+      color: #e4e4e7;
+    }
+
+    .fm-doc pre {
+      overflow: auto;
+      border-radius: 6px;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 10px;
+      white-space: pre-wrap;
+    }
+
+    .fm-slide {
+      margin: 0 0 10px;
+      border: 1px solid #d4d4d8;
+      border-radius: 6px;
+      background: #fff;
+      padding: 8px;
+    }
+
+    .fm-slide b {
+      color: #111827;
+      font-size: 12px;
+    }
+
+    .fm-slide pre {
+      margin: 8px 0 0;
+    }
+
+    .fm-table-wrap {
+      height: 100%;
+      overflow: auto;
+      background: #f8fafc;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-x pan-y;
+    }
+
+    .fm-table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: collapse;
+      color: #111827;
+      font-size: 11px;
+    }
+
+    .fm-table th,
+    .fm-table td {
+      max-width: 240px;
+      border: 1px solid #d4d4d8;
+      padding: 5px 7px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      vertical-align: top;
+    }
+
+    .fm-table th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #e4e4e7;
+      font-weight: 600;
+    }
+
+    .fm-doc-tabs {
+      display: flex;
+      gap: 4px;
+      overflow-x: auto;
+      border-bottom: 1px solid #d4d4d8;
+      background: #f4f4f5;
+      padding: 5px;
+    }
+
+    .fm-doc-tabs button {
+      height: 24px;
+      flex-shrink: 0;
+      border: 1px solid #d4d4d8;
+      border-radius: 5px;
+      background: #fff;
+      color: #111827;
+      padding: 0 8px;
+      font-size: 10px;
+    }
+
+    .fm-doc-tabs button.active {
+      border-color: #991b1b;
+      background: #991b1b;
+      color: #fff;
+    }
+
+    .fm-empty-preview {
+      display: flex;
+      height: 100%;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 8px;
+      background: #09090b;
+      color: #a1a1aa;
+      padding: 14px;
+    }
+
+    .fm-empty-preview b {
+      max-width: 100%;
+      overflow: hidden;
+      color: #f4f4f5;
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -240,9 +455,12 @@
       <section id="right" class="min-w-0"></section>
     </section>
 
-    <section id="editor" class="hidden h-[40vh] shrink-0 flex-col border-t border-zinc-800 bg-zinc-950">
-      <div class="flex h-8 shrink-0 items-center gap-1 border-b border-zinc-800 bg-black px-1.5">
-        <button class="cmd primary" data-action="save" title="保存"><i data-lucide="save"></i></button>
+    <section id="editor" class="hidden h-[42vh] shrink-0 flex-col border-t border-zinc-800 bg-zinc-950">
+      <div class="fm-editor-bar">
+        <button id="saveButton" class="cmd primary" data-action="save" title="保存"><i data-lucide="save"></i></button>
+        <button id="previewTab" class="fm-tab hidden" data-action="switch-view" data-view="preview">预览</button>
+        <button id="sourceTab" class="fm-tab hidden" data-action="switch-view" data-view="source">源码</button>
+        <button class="cmd" data-action="download-editing" title="打开/下载"><i data-lucide="download"></i></button>
         <button class="cmd" data-action="close-editor" title="关闭"><i data-lucide="x"></i></button>
         <div id="editPath" class="min-w-0 flex-1 truncate text-[10px] text-zinc-400"></div>
       </div>

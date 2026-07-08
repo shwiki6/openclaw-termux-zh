@@ -492,7 +492,7 @@ private class FloatingFileManagerServer(private val context: Context) {
                     sendJson(socket.getOutputStream(), 403, JSONObject().put("error", "Forbidden"))
                     return
                 }
-                route(socket.getOutputStream(), method, uri, body)
+                route(socket.getOutputStream(), method, uri, body, headers)
             } catch (e: Exception) {
                 sendJson(
                     socket.getOutputStream(),
@@ -503,7 +503,7 @@ private class FloatingFileManagerServer(private val context: Context) {
         }
     }
 
-    private fun route(out: OutputStream, method: String, uri: ParsedTarget, body: String) {
+    private fun route(out: OutputStream, method: String, uri: ParsedTarget, body: String, headers: Map<String, String>) {
         when {
             method == "GET" && uri.path == "/api/roots" -> sendJson(out, 200, roots())
             method == "GET" && uri.path == "/api/list" -> {
@@ -512,15 +512,15 @@ private class FloatingFileManagerServer(private val context: Context) {
             }
             method == "GET" && uri.path == "/api/read" -> {
                 val file = requireFile(uri.query["path"])
-                if (file.length() > 1024 * 1024) {
-                    sendJson(out, 413, JSONObject().put("error", "文件超过 1 MB，请使用下载或外部工具打开"))
+                if (file.length() > 5L * 1024L * 1024L) {
+                    sendJson(out, 413, JSONObject().put("error", "文件超过 5 MB，请使用下载或外部工具打开"))
                 } else {
-                    sendJson(out, 200, JSONObject().put("content", file.readText()))
+                    sendJson(out, 200, JSONObject().put("content", file.readText(Charsets.UTF_8)))
                 }
             }
             method == "GET" && uri.path == "/api/file" -> {
                 val file = requireFile(uri.query["path"])
-                sendFile(out, file)
+                sendFile(out, file, headers)
             }
             method == "POST" && uri.path == "/api/write" -> {
                 val json = JSONObject(body)
@@ -704,13 +704,94 @@ private class FloatingFileManagerServer(private val context: Context) {
         }
     }
 
-    private fun sendFile(out: OutputStream, file: File) {
-        val type = when (file.extension.lowercase(Locale.US)) {
+    private fun sendFile(out: OutputStream, file: File, headers: Map<String, String>) {
+        val type = fileContentType(file)
+        val length = file.length()
+        val range = headers["range"]?.trim()
+        val parsedRange = parseRange(range, length)
+        if (range != null && parsedRange == null) {
+            out.write(
+                "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */$length\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
+                    .toByteArray(Charsets.UTF_8)
+            )
+            out.flush()
+            return
+        }
+
+        if (parsedRange != null) {
+            val start = parsedRange.first
+            val end = parsedRange.second
+            val contentLength = end - start + 1
+            out.write(
+                "HTTP/1.1 206 Partial Content\r\nContent-Type: $type\r\nContent-Length: $contentLength\r\nContent-Range: bytes $start-$end/$length\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
+                    .toByteArray(Charsets.UTF_8)
+            )
+            copyFileRange(file, out, start, contentLength)
+            out.flush()
+            return
+        }
+
+        out.write(
+            "HTTP/1.1 200 OK\r\nContent-Type: $type\r\nContent-Length: $length\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n"
+                .toByteArray(Charsets.UTF_8)
+        )
+        FileInputStream(file).use { input -> input.copyTo(out) }
+        out.flush()
+    }
+
+    private fun parseRange(range: String?, length: Long): Pair<Long, Long>? {
+        if (range.isNullOrBlank() || !range.startsWith("bytes=") || length <= 0L) return null
+        val spec = range.removePrefix("bytes=").substringBefore(',').trim()
+        val parts = spec.split("-", limit = 2)
+        if (parts.size != 2) return null
+        val start: Long
+        val end: Long
+        if (parts[0].isBlank()) {
+            val suffixLength = parts[1].toLongOrNull() ?: return null
+            if (suffixLength <= 0L) return null
+            start = max(0L, length - suffixLength)
+            end = length - 1
+        } else {
+            start = parts[0].toLongOrNull() ?: return null
+            end = if (parts[1].isBlank()) length - 1 else parts[1].toLongOrNull() ?: return null
+        }
+        if (start < 0L || end < start || start >= length) return null
+        return start to min(end, length - 1)
+    }
+
+    private fun copyFileRange(file: File, out: OutputStream, start: Long, count: Long) {
+        FileInputStream(file).use { input ->
+            var skipped = 0L
+            while (skipped < start) {
+                val delta = input.skip(start - skipped)
+                if (delta > 0L) {
+                    skipped += delta
+                } else if (input.read() >= 0) {
+                    skipped += 1L
+                } else {
+                    break
+                }
+            }
+            val buffer = ByteArray(64 * 1024)
+            var remaining = count
+            while (remaining > 0L) {
+                val read = input.read(buffer, 0, min(buffer.size.toLong(), remaining).toInt())
+                if (read < 0) break
+                out.write(buffer, 0, read)
+                remaining -= read.toLong()
+            }
+        }
+    }
+
+    private fun fileContentType(file: File): String {
+        return when (file.extension.lowercase(Locale.US)) {
             "png" -> "image/png"
             "jpg", "jpeg" -> "image/jpeg"
             "gif" -> "image/gif"
             "webp" -> "image/webp"
             "bmp" -> "image/bmp"
+            "avif" -> "image/avif"
+            "ico" -> "image/x-icon"
             "heic" -> "image/heic"
             "heif" -> "image/heif"
             "svg" -> "image/svg+xml"
@@ -718,24 +799,43 @@ private class FloatingFileManagerServer(private val context: Context) {
             "m4a" -> "audio/mp4"
             "aac" -> "audio/aac"
             "wav" -> "audio/wav"
-            "ogg" -> "audio/ogg"
+            "ogg", "oga" -> "audio/ogg"
+            "opus" -> "audio/opus"
             "flac" -> "audio/flac"
-            "mp4" -> "video/mp4"
+            "amr" -> "audio/amr"
+            "mp4", "m4v" -> "video/mp4"
             "webm" -> "video/webm"
-            "3gp" -> "video/3gpp"
+            "3gp", "3gpp" -> "video/3gpp"
             "mkv" -> "video/x-matroska"
+            "mov" -> "video/quicktime"
+            "avi" -> "video/x-msvideo"
             "pdf" -> "application/pdf"
+            "doc" -> "application/msword"
+            "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "xls" -> "application/vnd.ms-excel"
+            "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "ppt" -> "application/vnd.ms-powerpoint"
+            "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            "odt" -> "application/vnd.oasis.opendocument.text"
+            "ods" -> "application/vnd.oasis.opendocument.spreadsheet"
+            "odp" -> "application/vnd.oasis.opendocument.presentation"
+            "rtf" -> "application/rtf"
             "zip" -> "application/zip"
+            "tar" -> "application/x-tar"
+            "gz" -> "application/gzip"
+            "xz" -> "application/x-xz"
+            "bz2" -> "application/x-bzip2"
+            "7z" -> "application/x-7z-compressed"
+            "rar" -> "application/vnd.rar"
             "apk" -> "application/vnd.android.package-archive"
-            "txt", "md", "json", "yaml", "yml", "toml", "xml", "html", "css", "js", "dart", "kt", "java", "py", "sh", "log" -> "text/plain; charset=utf-8"
+            "txt", "text", "md", "markdown", "json", "json5", "yaml", "yml", "toml",
+            "xml", "html", "htm", "css", "scss", "less", "js", "mjs", "cjs", "ts",
+            "tsx", "jsx", "dart", "kt", "kts", "java", "py", "pyw", "sh", "bash",
+            "zsh", "fish", "log", "ini", "conf", "cfg", "properties", "gradle", "c",
+            "h", "cpp", "hpp", "cc", "cxx", "go", "rs", "php", "rb", "lua", "sql",
+            "csv", "tsv", "dockerfile", "gitignore", "env", "lock" -> "text/plain; charset=utf-8"
             else -> "application/octet-stream"
         }
-        out.write(
-            "HTTP/1.1 200 OK\r\nContent-Type: $type\r\nContent-Length: ${file.length()}\r\nConnection: close\r\n\r\n"
-                .toByteArray(Charsets.UTF_8)
-        )
-        FileInputStream(file).use { input -> input.copyTo(out) }
-        out.flush()
     }
 
     private fun parseTarget(target: String): ParsedTarget {
